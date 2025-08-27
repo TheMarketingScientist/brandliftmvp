@@ -6,6 +6,7 @@ Minimal Streamlit app to score ad copy or transcripts across brand perception at
 - Quality
 - Luxury
 - Cost/Benefit
+- Trust
 
 ## 🚀 Quick Start (Local)
 

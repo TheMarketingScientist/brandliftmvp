@@ -1,3 +1,4 @@
+
 import json
 import random
 import httpx
@@ -6,8 +7,6 @@ import plotly.graph_objects as go
 import pandas as pd
 from pathlib import Path
 import re
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 
 # ---------- Brand Theme ----------
 BRAND_BLUE   = "#445DA7"  # Original
@@ -102,12 +101,12 @@ def _extract_json_substring(text: str) -> str | None:
         if in_str:
             if esc:
                 esc = False
-            elif ch == '\\\\':
+            elif ch == '\\':
                 esc = True
-            elif ch == '\"':
+            elif ch == '"':
                 in_str = False
         else:
-            if ch == '\"':
+            if ch == '"':
                 in_str = True
             elif ch in '{[':
                 stack.append(ch)
@@ -137,88 +136,88 @@ def _parse_json_block(text: str) -> dict:
     if not isinstance(text, str):
         raise RuntimeError("Model did not return text content.")
     # Normalize common smart quotes to straight quotes
-    text = text.replace('\\u201c', '\"').replace('\\u201d', '\"').replace('“','\"').replace('”','\"').replace('’',\"'\").replace('‘',\"'\")
-    # Remove trailing junk like \\\"}...note\\\" after the JSON
+    text = text.replace('\u201c', '"').replace('\u201d', '"').replace('“','"').replace('”','"').replace('’',"'").replace('‘',"'")
+    # Remove trailing junk like \"}...note\" after the JSON
     candidate = _extract_json_substring(text)
     if candidate is None:
-        raise RuntimeError(\"Model did not return JSON. Output was: \" + text[:400])
+        raise RuntimeError("Model did not return JSON. Output was: " + text[:400])
     try:
         return json.loads(candidate)
     except json.JSONDecodeError as e:
         # Last-resort: try to replace single quotes with double quotes if it looks like JSON-ish
-        jlike = re.sub(r\"(?<!\\\\)'\", '\"', candidate)
+        jlike = re.sub(r"(?<!\\)'", '"', candidate)
         try:
             return json.loads(jlike)
         except Exception:
-            raise RuntimeError(f\"Could not parse JSON. Error: {e}. Output was: {text[:400]}\")
+            raise RuntimeError(f"Could not parse JSON. Error: {e}. Output was: {text[:400]}")
 
 def _call_messages(api_key: str, system: str, user_content: str, model: str, temperature: float = 0.2, max_tokens: int = 700) -> str:
     headers = {
-        \"x-api-key\": api_key,
-        \"anthropic-version\": \"2023-06-01\",
-        \"content-type\": \"application/json\",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
     }
     payload = {
-        \"model\": model,
-        \"max_tokens\": max_tokens,
-        \"temperature\": temperature,
-        \"system\": system,
-        \"messages\": [{\"role\": \"user\", \"content\": user_content}],
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system,
+        "messages": [{"role": "user", "content": user_content}],
     }
     with httpx.Client(timeout=60) as client:
         r = client.post(API_BASE, headers=headers, json=payload)
         try:
             r.raise_for_status()
         except httpx.HTTPStatusError as e:
-            raise RuntimeError(f\"HTTP {e.response.status_code} from Anthropic ({model}) — {e.response.text}\")
+            raise RuntimeError(f"HTTP {e.response.status_code} from Anthropic ({model}) — {e.response.text}")
     data = r.json()
     # Some responses have multiple content blocks. Join all text blocks.
-    blocks = data.get(\"content\", [])
+    blocks = data.get("content", [])
     texts = []
     for b in blocks:
-        if isinstance(b, dict) and b.get(\"type\") == \"text\" and \"text\" in b:
-            texts.append(b[\"text\"])
-    return \"\\n\".join(texts) if texts else (blocks[0][\"text\"] if blocks and isinstance(blocks[0], dict) and \"text\" in blocks[0] else \"\")
+        if isinstance(b, dict) and b.get("type") == "text" and "text" in b:
+            texts.append(b["text"])
+    return "\n".join(texts) if texts else (blocks[0]["text"] if blocks and isinstance(blocks[0], dict) and "text" in blocks[0] else "")
 
 def _with_fallback(func, *args, **kwargs):
     try:
         return func(PREFERRED_MODEL, *args, **kwargs), PREFERRED_MODEL
     except RuntimeError as e:
         s = str(e)
-        if (\"HTTP 403\" in s) or (\"HTTP 404\" in s) or (\"not_found\" in s) or (\"model not found\" in s):
+        if ("HTTP 403" in s) or ("HTTP 404" in s) or ("not_found" in s) or ("model not found" in s):
             return func(FALLBACK_MODEL, *args, **kwargs), FALLBACK_MODEL
         raise
 
 def score_text(api_key: str, text: str) -> dict:
-    user_content = f\"\"\"Text:
+    user_content = f"""Text:
 {text}
 
 Output JSON schema:
-{json.dumps(_schema())}\"\"\"
+{json.dumps(_schema())}"""
     def run(model, api_key_inner, uc):
         out_text = _call_messages(api_key_inner, SYSTEM_SCORE, uc, model)
         scores = _parse_json_block(out_text)
         for k in ATTRS:
-            s = float(scores[k][\"score\"])
-            scores[k][\"score\"] = max(0.0, min(1.0, s))
+            s = float(scores[k]["score"])
+            scores[k]["score"] = max(0.0, min(1.0, s))
         return scores
     scores, _ = _with_fallback(run, api_key, user_content)
     return scores
 
 def rewrite_copy(api_key: str, text: str, targets: list[str]) -> str:
-    t = \", \".join(targets) if targets else \"Leadership\"
-    example = json.dumps({\"rewrite\": \"...\"}, ensure_ascii=False)
-    instr = f\"\"\"Rewrite the text to increase the perception of: {t}.
+    t = ", ".join(targets) if targets else "Leadership"
+    example = json.dumps({"rewrite": "..."}, ensure_ascii=False)
+    instr = f"""Rewrite the text to increase the perception of: {t}.
 Preserve original meaning, keep tone professional, avoid hype. Max 70 words.
 Return JSON: {example}
 
 Original:
-{text}\"\"\"
+{text}"""
     def run(model, api_key_inner, prompt_text):
         out_text = _call_messages(api_key_inner, SYSTEM_REWRITE, prompt_text, model, temperature=0.4, max_tokens=400)
         try:
             data = _parse_json_block(out_text)
-            candidate = data.get(\"rewrite\", \"\").strip()
+            candidate = data.get("rewrite", "").strip()
             if candidate:
                 return candidate
         except Exception:
@@ -228,42 +227,41 @@ Original:
         clean = _strip_code_fences(out_text).strip()
         if clean:
             words = clean.split()
-            return \" \".join(words[:70])
+            return " ".join(words[:70])
         # 2) Last resort: return original
         return text
     rewrite, _ = _with_fallback(run, api_key, instr)
     return rewrite or text
 
 def propose_new_ideas(api_key: str, base_text: str, targets: list[str], n: int = 2) -> list[str]:
-    t = \", \".join(targets) if targets else \"Leadership\"
-    example = json.dumps({\"ideas\": [\"...\", \"...\"]}, ensure_ascii=False)
-    prompt = f\"\"\"Given this ad copy, propose {n} distinct alternative ideas that could outperform a competitor
+    t = ", ".join(targets) if targets else "Leadership"
+    example = json.dumps({"ideas": ["...", "..."]}, ensure_ascii=False)
+    prompt = f"""Given this ad copy, propose {n} distinct alternative ideas that could outperform a competitor
 on the following target attributes: {t}.
 Keep each idea under 35 words. Return JSON: {example}
 
 Original:
-{base_text}\"\"\"
+{base_text}"""
     def run(model, api_key_inner, uc):
         out_text = _call_messages(api_key_inner, SYSTEM_IDEA, uc, model, temperature=0.6, max_tokens=500)
         try:
             data = _parse_json_block(out_text)
-            ideas = data.get(\"ideas\", [])
+            ideas = data.get("ideas", [])
             return [i.strip() for i in ideas if isinstance(i, str) and i.strip()]
         except Exception:
             # fallback: split lines/bullets if model didn't follow JSON
-            lines = [l.strip(\"-• \").strip() for l in _strip_code_fences(out_text).splitlines() if l.strip()]
+            lines = [l.strip("-• ").strip() for l in _strip_code_fences(out_text).splitlines() if l.strip()]
             return [l for l in lines if l][:n]
     ideas, _ = _with_fallback(run, api_key, prompt)
     return [i.strip() for i in ideas if isinstance(i, str) and i.strip()]
 
 # ---- Competitor random generation ----
 COMP_PHRASES = {
-    \"Leadership\": [\"market-leading claims\", \"award-winning reputation\", \"trend-setting positioning\", \"recognized authority\"],
-    \"Ease_of_Use\": [\"simple onboarding cues\", \"clear action verbs\", \"one-step instructions\", \"low-friction setup\"],
-    \"Quality\": [\"durability emphasis\", \"precision language\", \"rigorous testing mention\", \"craftsmanship cues\"],
-    \"Luxury\": [\"exclusive tone\", \"premium finish cues\", \"elevated aesthetic\", \"boutique language\"],
-    \"Cost_Benefit\": [\"value-centric framing\", \"ROI emphasis\", \"savings mention\", \"high benefit per cost\"],
-    \"Trust\": [\"secure by design\", \"privacy-first messaging\", \"reliable support\", \"brand heritage cue\"],
+    "Leadership": ["market-leading claims", "award-winning reputation", "trend-setting positioning", "recognized authority"],
+    "Ease_of_Use": ["simple onboarding cues", "clear action verbs", "one-step instructions", "low-friction setup"],
+    "Quality": ["durability emphasis", "precision language", "rigorous testing mention", "craftsmanship cues"],
+    "Luxury": ["exclusive tone", "premium finish cues", "elevated aesthetic", "boutique language"],
+    "Cost_Benefit": ["value-centric framing", "ROI emphasis", "savings mention", "high benefit per cost"],
 }
 def random_competitor_scores(seed: int | None = None) -> dict:
     if seed is not None:
@@ -271,17 +269,17 @@ def random_competitor_scores(seed: int | None = None) -> dict:
     scores = {}
     for k in ATTRS:
         val = round(random.uniform(0.25, 0.9), 2)
-        phrase = random.choice(COMP_PHRASES.get(k, [\"balanced framing\"]))  # ensure Trust also covered
-        scores[k] = {\"score\": val, \"evidence\": phrase}
+        phrase = random.choice(COMP_PHRASES.get(k, ["balanced framing"]))
+        scores[k] = {"score": val, "evidence": phrase}
     return scores
 
 def radar(scores: dict, title: str, fill_color: str, line_color: str):
-    vals = [scores[k][\"score\"] for k in ATTRS]
+    vals = [scores[k]["score"] for k in ATTRS]
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
         r=vals + vals[:1],
         theta=ATTRS + ATTRS[:1],
-        fill=\"toself\",
+        fill="toself",
         fillcolor=fill_color,
         line=dict(color=line_color, width=2),
         name=title
@@ -298,27 +296,27 @@ def scores_table(scores: dict) -> pd.DataFrame:
     rows = []
     for k in ATTRS:
         rows.append({
-            \"Attribute\": k.replace(\"_\", \" \"),
-            \"Score\": round(float(scores[k][\"score\"]), 2),
-            \"Key phrase\": scores[k][\"evidence\"]
+            "Attribute": k.replace("_", " "),
+            "Score": round(float(scores[k]["score"]), 2),
+            "Key phrase": scores[k]["evidence"]
         })
     return pd.DataFrame(rows)
 
 def delta_table(base: dict, improved: dict) -> pd.DataFrame:
     rows = []
     for k in ATTRS:
-        b = float(base[k][\"score\"])
-        i = float(improved[k][\"score\"])
+        b = float(base[k]["score"])
+        i = float(improved[k]["score"])
         rows.append({
-            \"Attribute\": k.replace(\"_\", \" \"),
-            \"Original\": round(b, 2),
-            \"Improved\": round(i, 2),
-            \"Δ\": round(i - b, 2),
+            "Attribute": k.replace("_", " "),
+            "Original": round(b, 2),
+            "Improved": round(i, 2),
+            "Δ": round(i - b, 2),
         })
     return pd.DataFrame(rows)
 
 def inject_css():
-    st.markdown(f\"\"\"
+    st.markdown(f"""
     <style>
     .stButton > button {{
         background-color: {BRAND_BLUE};
@@ -344,240 +342,173 @@ def inject_css():
         font-size: 0.85rem; margin-right: 0.35rem; margin-bottom: 0.35rem;
     }}
     </style>
-    \"\"\", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# ------- Score record utilities (for Heatmap & Trends) -------
+# ------- Score record utilities (for Heatmap) -------
 def _init_records():
-    if \"score_records\" not in st.session_state:
-        # list of dicts: {entity, channel, variant, scores, month}
-        st.session_state[\"score_records\"] = []
+    if "score_records" not in st.session_state:
+        st.session_state["score_records"] = []  # list of dicts: {entity, channel, variant, scores}
 
-def _upsert_record(entity: str, channel: str, variant: str, scores: dict, month: pd.Timestamp | None = None):
+def _upsert_record(entity: str, channel: str, variant: str, scores: dict):
     _init_records()
-    if month is None:
-        # default to current month (normalized to first day for grouping)
-        month = pd.Timestamp(datetime.utcnow()).normalize().replace(day=1)
-    key = (entity, channel, variant, month)
-    for r in st.session_state[\"score_records\"]:
-        if (r[\"entity\"], r[\"channel\"], r[\"variant\"], r[\"month\"]) == key:
-            r[\"scores\"] = scores
+    key = (entity, channel, variant)
+    for r in st.session_state["score_records"]:
+        if (r["entity"], r["channel"], r["variant"]) == key:
+            r["scores"] = scores
             break
     else:
-        st.session_state[\"score_records\"].append({
-            \"entity\": entity,
-            \"channel\": channel,
-            \"variant\": variant,
-            \"scores\": scores,
-            \"month\": month,
-        })
+        st.session_state["score_records"].append({"entity": entity, "channel": channel, "variant": variant, "scores": scores})
 
 def _records_to_channel_attr_medians(entities: list[str] | None = None, variants: list[str] | None = None) -> pd.DataFrame:
     _init_records()
     rows = []
-    for r in st.session_state[\"score_records\"]:
-        if entities and r[\"entity\"] not in entities:
+    for r in st.session_state["score_records"]:
+        if entities and r["entity"] not in entities:
             continue
-        if variants and r[\"variant\"] not in variants:
+        if variants and r["variant"] not in variants:
             continue
-        channel = r[\"channel\"]
-        sc = r[\"scores\"]
+        channel = r["channel"]
+        sc = r["scores"]
         for attr in ATTRS:
-            rows.append({\"Channel\": channel, \"Attribute\": attr.replace(\"_\", \" \"), \"Score\": float(sc[attr][\"score\"]) })
+            rows.append({"Channel": channel, "Attribute": attr.replace("_", " "), "Score": float(sc[attr]["score"])})
     if not rows:
-        return pd.DataFrame(columns=[\"Channel\"] + [a.replace(\"_\", \" \") for a in ATTRS])
+        return pd.DataFrame(columns=["Channel"] + [a.replace("_", " ") for a in ATTRS])
     df = pd.DataFrame(rows)
-    med = df.groupby([\"Channel\", \"Attribute\"], as_index=False)[\"Score\"].median()
-    pivot = med.pivot(index=\"Channel\", columns=\"Attribute\", values=\"Score\").reindex(CHANNELS, fill_value=None)
-    pivot = pivot[[a.replace(\"_\",\" \") for a in ATTRS]]
+    med = df.groupby(["Channel", "Attribute"], as_index=False)["Score"].median()
+    pivot = med.pivot(index="Channel", columns="Attribute", values="Score").reindex(CHANNELS, fill_value=None)
+    pivot = pivot[[a.replace("_"," ") for a in ATTRS]]
     return pivot.reset_index()
 
-def _heatmap(fig_df: pd.DataFrame, title: str = \"Attribute Importance Heatmap\"):
+def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     if fig_df.empty or len(fig_df.columns) <= 1:
-        st.info(\"Not enough scored items to build a heatmap yet. Score at least one item.\")
+        st.info("Not enough scored items to build a heatmap yet. Score at least one item.")
         return
-    z = fig_df.drop(columns=[\"Channel\"]).values
+    z = fig_df.drop(columns=["Channel"]).values
     x = list(fig_df.columns[1:])
-    y = list(fig_df[\"Channel\"])
+    y = list(fig_df["Channel"])
     hm = go.Figure(data=go.Heatmap(colorscale=[
         [0.0, 'rgb(220,20,60)'],
         [0.5, 'rgb(255,215,0)'],
         [1.0, 'rgb(34,139,34)']
     ],
         z=z, x=x, y=y, zmin=0.0, zmax=1.0,
-        colorbar=dict(title=\"Median Score\"),
-        hovertemplate=\"Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>\"
+        colorbar=dict(title="Median Score"),
+        hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"
     ))
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
     st.plotly_chart(hm, use_container_width=True)
     st.dataframe(fig_df, use_container_width=True)
 
-# --------- NEW: Channel Trends Over Time ----------
-def _records_to_trends(channel: str, months_back: int = 6, entities: list[str] | None = None, variants: list[str] | None = None) -> pd.DataFrame:
-    \"\"\"Return median score per month per attribute for a given channel.\"\"\"
-    _init_records()
-    if months_back < 1:
-        months_back = 1
-    # Build month list (most recent first day of month going back months_back)
-    base_month = pd.Timestamp(datetime.utcnow()).normalize().replace(day=1)
-    month_list = [base_month - relativedelta(months=i) for i in range(months_back-1, -1, -1)]
-
-    rows = []
-    for r in st.session_state[\"score_records\"]:
-        if r[\"channel\"] != channel:
-            continue
-        if entities and r[\"entity\"] not in entities:
-            continue
-        if variants and r[\"variant\"] not in variants:
-            continue
-        m = pd.Timestamp(r[\"month\"]).normalize().replace(day=1)
-        if m not in month_list:
-            continue
-        sc = r[\"scores\"]
-        for attr in ATTRS:
-            rows.append({\"Month\": m, \"Attribute\": attr.replace(\"_\",\" \"), \"Score\": float(sc[attr][\"score\"]) })
-    if not rows:
-        return pd.DataFrame(columns=[\"Month\", \"Attribute\", \"Median\"])
-    df = pd.DataFrame(rows)
-    med = (df.groupby([\"Month\", \"Attribute\"], as_index=False)[\"Score\"].median()
-             .sort_values([\"Month\", \"Attribute\"]))
-    med.rename(columns={\"Score\": \"Median\"}, inplace=True)
-    # Ensure all months exist for all attributes (fill missing with NaN for continuity)
-    all_attrs = [a.replace(\"_\",\" \") for a in ATTRS]
-    full_idx = pd.MultiIndex.from_product([month_list, all_attrs], names=[\"Month\",\"Attribute\"])
-    med = med.set_index([\"Month\",\"Attribute\"]).reindex(full_idx).reset_index()
-    return med
-
-def _trend_plot(trend_df: pd.DataFrame, channel: str):
-    if trend_df.empty:
-        st.info(\"Not enough data to plot trends yet. Try seeding demo data or score more items.\")
-        return
-    fig = go.Figure()
-    for attr in sorted(trend_df[\"Attribute\"].unique()):
-        dfa = trend_df[trend_df[\"Attribute\"] == attr].sort_values(\"Month\")
-        fig.add_trace(go.Scatter(
-            x=dfa[\"Month\"], y=dfa[\"Median\"], mode=\"lines+markers\", name=attr,
-            hovertemplate=\"%{x|%b %Y}<br>%{y:.2f}<extra>\" + attr + \"</extra>\"
-        ))
-    fig.update_layout(
-        title=f\"Channel Trends Over Time — {channel}\",
-        xaxis_title=\"Month\", yaxis_title=\"Median Attribute Score\",
-        yaxis=dict(range=[0,1]),
-        margin=dict(l=40, r=20, t=60, b=40),
-        legend_title_text=\"Attribute\",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(trend_df, use_container_width=True)
-
 # ---------------- UI ----------------
-st.set_page_config(page_title=\"Brand Lift\", layout=\"wide\")
+st.set_page_config(page_title="Brand Lift", layout="wide")
 inject_css()
 
 hdr_left, hdr_right = st.columns([4,1])
 with hdr_left:
-    st.markdown(\"<h1 class='app-title'>Brand Lift</h1>\", unsafe_allow_html=True)
+    st.markdown("<h1 class='app-title'>Brand Lift</h1>", unsafe_allow_html=True)
 with hdr_right:
-    logo_path = Path(\"logo.png\")
+    logo_path = Path("logo.png")
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
 
-api_key = st.secrets.get(\"ANTHROPIC_API_KEY\", \"\").strip()
+api_key = st.secrets.get("ANTHROPIC_API_KEY", "").strip()
 if not api_key:
-    st.info('Add your key in Settings → Secrets as:\\nANTHROPIC_API_KEY = \"sk-ant-...\"')
+    st.info('Add your key in Settings → Secrets as:\nANTHROPIC_API_KEY = "sk-ant-..."')
 
-st.markdown(\"**Attributes**\")
-st.markdown('<div class=\"badges\">' + \" \".join(
-    [f'<span class=\"badge\" style=\"background:{BRAND_NAVY}\">Leadership</span>',
-     f'<span class=\"badge\" style=\"background:{BRAND_BLUE}\">Ease of Use</span>',
-     f'<span class=\"badge\" style=\"background:{BRAND_PURPLE}\">Quality</span>',
-     f'<span class=\"badge\" style=\"background:#64348B\">Luxury</span>',
-     f'<span class=\"badge\" style=\"background:#2B386A\">Cost/Benefit</span>',
-     f'<span class=\"badge\" style=\"background:#2AA9A1\">Trust</span>']
-) + \"</div>\", unsafe_allow_html=True)
+st.markdown("**Attributes**")
+st.markdown('<div class="badges">' + " ".join(
+    [f'<span class="badge" style="background:{BRAND_NAVY}">Leadership</span>',
+     f'<span class="badge" style="background:{BRAND_BLUE}">Ease of Use</span>',
+     f'<span class="badge" style="background:{BRAND_PURPLE}">Quality</span>',
+     f'<span class="badge" style="background:#64348B">Luxury</span>',
+     f'<span class="badge" style="background:#2B386A">Cost/Benefit</span>',
+     f'<span class="badge" style="background:#2AA9A1">Trust</span>']
+) + "</div>", unsafe_allow_html=True)
 
-text = st.text_area(\"Paste ad copy or transcript:\", height=160,
-    placeholder=\"Example: Introducing the next-generation sedan—hand-finished interiors, seamless app control, and advanced safety.\")
+text = st.text_area("Paste ad copy or transcript:", height=160,
+    placeholder="Example: Introducing the next-generation sedan—hand-finished interiors, seamless app control, and advanced safety.")
 
-client_url = st.text_input(\"Client creative URL (optional)\", placeholder=\"https://...\")
-client_channel = st.selectbox(\"Client channel\", CHANNELS, index=0)
+client_url = st.text_input("Client creative URL (optional)", placeholder="https://...")
+client_channel = st.selectbox("Client channel", CHANNELS, index=0)
 
 c1, c2, c3 = st.columns([1,1,2])
 with c1:
-    score_clicked = st.button(\"Score\", use_container_width=True)
+    score_clicked = st.button("Score", use_container_width=True)
 with c2:
-    targets = st.multiselect(\"Improve attributes\", ATTRS, default=[\"Leadership\",\"Quality\"])
-    improve_clicked = st.button(\"Improve & Rescore\", use_container_width=True)
+    targets = st.multiselect("Improve attributes", ATTRS, default=["Leadership","Quality"])
+    improve_clicked = st.button("Improve & Rescore", use_container_width=True)
 with c3:
     comp_cols = st.columns([1.2, 2.8])
     with comp_cols[0]:
-        comp_name = st.text_input(\"Competitor label\", value=\"Competitor A\")
+        comp_name = st.text_input("Competitor label", value="Competitor A")
     with comp_cols[1]:
-        comp_url = st.text_input(\"Competitor ad/creative URL (optional)\", placeholder=\"https://...\")
-    comp_text = st.text_area(\"Competitor copy/transcript (optional)\", height=120, placeholder=\"Paste competitor copy/transcript to score (optional)\")
-    comp_channel = st.selectbox(\"Competitor channel\", CHANNELS, index=0)
-    score_comp = st.button(\"Score Competitor\", use_container_width=True)
+        comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
+    comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
+    comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)
+    score_comp = st.button("Score Competitor", use_container_width=True)
 
 if score_clicked:
     if not api_key:
-        st.error(\"No API key found in Secrets.\")
+        st.error("No API key found in Secrets.")
     elif not client_channel:
-        st.warning(\"Please select a channel before scoring.\")
+        st.warning("Please select a channel before scoring.")
     elif not text.strip():
-        st.warning(\"Please paste some text.\")
+        st.warning("Please paste some text.")
     else:
-        with st.spinner(\"Scoring…\"):
+        with st.spinner("Scoring…"):
             base_scores = score_text(api_key, text)
-            st.session_state[\"base_text\"] = text
-            st.session_state[\"base_scores\"] = base_scores
-            st.session_state[\"client_channel\"] = client_channel
-            _upsert_record(\"Client\", client_channel, \"Original\", base_scores)
+            st.session_state["base_text"] = text
+            st.session_state["base_scores"] = base_scores
+            st.session_state["client_channel"] = client_channel
+            _upsert_record("Client", client_channel, "Original", base_scores)
 
 if improve_clicked:
-    source_text = text.strip() or st.session_state.get(\"base_text\", \"\")
+    source_text = text.strip() or st.session_state.get("base_text", "")
     if not api_key:
-        st.error(\"No API key found in Secrets.\")
+        st.error("No API key found in Secrets.")
     elif not client_channel:
-        st.warning(\"Please select a channel before scoring.\")
+        st.warning("Please select a channel before scoring.")
     elif not source_text:
-        st.warning(\"Paste text and click Score first.\")
+        st.warning("Paste text and click Score first.")
     else:
-        with st.spinner(\"Generating improved copy…\"):
+        with st.spinner("Generating improved copy…"):
             improved_text = rewrite_copy(api_key, source_text, targets)
-        with st.spinner(\"Scoring improved copy…\"):
+        with st.spinner("Scoring improved copy…"):
             improved_scores = score_text(api_key, improved_text)
-        st.session_state[\"improved_text\"] = improved_text
-        st.session_state[\"improved_scores\"] = improved_scores
-        if \"base_scores\" not in st.session_state:
-            st.session_state[\"base_text\"] = source_text
-            st.session_state[\"base_scores\"] = score_text(api_key, source_text)
-            _upsert_record(\"Client\", client_channel, \"Original\", st.session_state[\"base_scores\"])
-        _upsert_record(\"Client\", client_channel, \"Improved\", improved_scores)
+        st.session_state["improved_text"] = improved_text
+        st.session_state["improved_scores"] = improved_scores
+        if "base_scores" not in st.session_state:
+            st.session_state["base_text"] = source_text
+            st.session_state["base_scores"] = score_text(api_key, source_text)
+            _upsert_record("Client", client_channel, "Original", st.session_state["base_scores"])
+        _upsert_record("Client", client_channel, "Improved", improved_scores)
 
-if \"score_comp\" in locals() and score_comp:
-    st.session_state[\"competitor_name\"] = comp_name or \"Competitor\"
-    st.session_state[\"competitor_url\"] = comp_url.strip()
+if "score_comp" in locals() and score_comp:
+    st.session_state["competitor_name"] = comp_name or "Competitor"
+    st.session_state["competitor_url"] = comp_url.strip()
     if not api_key:
-        st.error(\"No API key found in Secrets.\")
+        st.error("No API key found in Secrets.")
     elif not client_channel:
-        st.warning(\"Please select a channel before scoring.\")
-    elif (comp_text or \"\").strip():
+        st.warning("Please select a channel before scoring.")
+    elif (comp_text or "").strip():
         if not comp_channel:
-            st.warning(\"Please select a competitor channel before scoring.\")
+            st.warning("Please select a competitor channel before scoring.")
         else:
-            with st.spinner(\"Scoring competitor…\"):
+            with st.spinner("Scoring competitor…"):
                 s = score_text(api_key, comp_text)
-                st.session_state[\"competitor_scores\"] = s
-                _upsert_record(st.session_state[\"competitor_name\"], comp_channel, \"Competitor\", s)
+                st.session_state["competitor_scores"] = s
+                _upsert_record(st.session_state["competitor_name"], comp_channel, "Competitor", s)
     else:
-        st.warning(\"Paste competitor copy/transcript to score.\")
+        st.warning("Paste competitor copy/transcript to score.")
 
-base_scores = st.session_state.get(\"base_scores\")
-improved_scores = st.session_state.get(\"improved_scores\")
-comp_scores = st.session_state.get(\"competitor_scores\")
-comp_label = st.session_state.get(\"competitor_name\", \"Competitor\")
-comp_link  = st.session_state.get(\"competitor_url\", \"\")
+base_scores = st.session_state.get("base_scores")
+improved_scores = st.session_state.get("improved_scores")
+comp_scores = st.session_state.get("competitor_scores")
+comp_label = st.session_state.get("competitor_name", "Competitor")
+comp_link  = st.session_state.get("competitor_url", "")
 
 if base_scores or improved_scores or comp_scores:
-    st.subheader(\"Comparison\")
+    st.subheader("Comparison")
     cols_to_use = [bool(base_scores), bool(improved_scores), bool(comp_scores)]
     n = sum(cols_to_use) or 1
     cols = st.columns(n)
@@ -585,10 +516,10 @@ if base_scores or improved_scores or comp_scores:
     idx = 0
     if base_scores:
         with cols[idx]:
-            st.markdown(\"**Original Copy**\")
-            st.write(st.session_state.get(\"base_text\",\"\"))
+            st.markdown("**Original Copy**")
+            st.write(st.session_state.get("base_text",""))
             if client_url:
-                st.markdown(f\"[Open creative]({client_url})\")
+                st.markdown(f"[Open creative]({client_url})")
                 try:
                     lower_cli = client_url.lower()
                     if lower_cli.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
@@ -597,25 +528,25 @@ if base_scores or improved_scores or comp_scores:
                         st.video(client_url)
                 except Exception:
                     pass
-            st.session_state[\"client_channel\"] = client_channel
-            st.plotly_chart(radar(base_scores, \"Original Scores\", blue_fill, blue_line), use_container_width=True)
+            st.session_state["client_channel"] = client_channel
+            st.plotly_chart(radar(base_scores, "Original Scores", blue_fill, blue_line), use_container_width=True)
             st.dataframe(scores_table(base_scores), use_container_width=True)
         idx += 1
 
     if improved_scores:
         with cols[idx]:
-            st.markdown(\"**Improved Copy**\")
-            st.write(st.session_state.get(\"improved_text\",\"\"))
-            st.plotly_chart(radar(improved_scores, \"Improved Scores\", purple_fill, purple_line), use_container_width=True)
+            st.markdown("**Improved Copy**")
+            st.write(st.session_state.get("improved_text",""))
+            st.plotly_chart(radar(improved_scores, "Improved Scores", purple_fill, purple_line), use_container_width=True)
             st.dataframe(scores_table(improved_scores), use_container_width=True)
         idx += 1
 
     if comp_scores:
         with cols[idx]:
-            st.markdown(f\"**{comp_label}**\")
+            st.markdown(f"**{comp_label}**")
             if comp_link:
                 lower = comp_link.lower()
-                st.markdown(f\"[Open creative]({comp_link})\")
+                st.markdown(f"[Open creative]({comp_link})")
                 try:
                     if lower.endswith(('.png','.jpg','.jpeg','.webp','.gif')):
                         st.image(comp_link, use_container_width=True)
@@ -623,65 +554,116 @@ if base_scores or improved_scores or comp_scores:
                         st.video(comp_link)
                 except Exception:
                     pass
-            st.plotly_chart(radar(comp_scores, f\"{comp_label} Scores\", teal_fill, teal_line), use_container_width=True)
+            st.plotly_chart(radar(comp_scores, f"{comp_label} Scores", teal_fill, teal_line), use_container_width=True)
             st.dataframe(scores_table(comp_scores), use_container_width=True)
 
 if base_scores and improved_scores:
-    st.subheader(\"Score Changes (Original → Improved)\")
+    st.subheader("Score Changes (Original → Improved)")
     st.dataframe(delta_table(base_scores, improved_scores), use_container_width=True)
 
 # ---------------- Heatmap View ----------------
-st.subheader(\"Attribute Importance Heatmap\")
-st.caption(\"Color-coded median scores of each attribute across channels from all scored items (client, improved, and competitors).\")
+st.subheader("Attribute Importance Heatmap")
+st.caption("Color-coded median scores of each attribute across channels from all scored items (client, improved, and competitors).")
 
-
-# Initialize records
 _init_records()
 
-def _seed_full_demo_heatmap_and_trends(months_back: int = 6):
-    \"\"\"Seed multi-month demo data so both heatmap and trends show content in a live demo.\"\"\"
+def _seed_full_demo_heatmap():
     _init_records()
-    if st.session_state[\"score_records\"]:
+    if st.session_state["score_records"]:
         return
-    # Create seeded data for the last N months per channel and entity/variant
-    base_month = pd.Timestamp(datetime.utcnow()).normalize().replace(day=1)
-    months = [base_month - relativedelta(months=i) for i in range(months_back-1, -1, -1)]
     for i, ch in enumerate(CHANNELS):
-        for m_idx, m in enumerate(months):
-            # jitter seed so months evolve
-            seed_base = 1000 + i*50 + m_idx*7
-            _upsert_record(\"Client\", ch, \"Original\", random_competitor_scores(seed=seed_base), month=m)
-            _upsert_record(\"Client\", ch, \"Improved\", random_competitor_scores(seed=seed_base+11), month=m)
-            _upsert_record(\"Competitor A\", ch, \"Competitor\", random_competitor_scores(seed=seed_base+23), month=m)
+        _upsert_record("Client", ch, "Original", random_competitor_scores(seed=100 + i))
+        _upsert_record("Client", ch, "Improved", random_competitor_scores(seed=200 + i))
+        _upsert_record("Competitor A", ch, "Competitor", random_competitor_scores(seed=300 + i))
 
-_seed_full_demo_heatmap_and_trends()
+_seed_full_demo_heatmap()
 
-all_entities = sorted({r[\"entity\"] for r in st.session_state[\"score_records\"]} | {\"Client\"})
-all_variants = sorted({r[\"variant\"] for r in st.session_state[\"score_records\"]} | {\"Original\", \"Improved\", \"Competitor\"})
+all_entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
+all_variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original", "Improved", "Competitor"})
 
 fcol1, fcol2 = st.columns([2,2])
 with fcol1:
-    sel_entities = st.multiselect(\"Entities\", options=all_entities, default=all_entities,
-                                  help=\"Filter which entities to include (e.g., Client, Competitor A)\")
+    sel_entities = st.multiselect("Entities", options=all_entities, default=all_entities,
+                                  help="Filter which entities to include (e.g., Client, Competitor A)")
 with fcol2:
-    sel_variants = st.multiselect(\"Variants\", options=all_variants, default=all_variants,
-                                  help=\"Filter Original / Improved / Competitor entries\")
-
+    sel_variants = st.multiselect("Variants", options=all_variants, default=all_variants,
+                                  help="Filter Original / Improved / Competitor entries")
 
 heatmap_df = _records_to_channel_attr_medians(entities=sel_entities or None, variants=sel_variants or None)
-_heatmap(heatmap_df, title=\"Attribute Importance Heatmap (Median by Channel)\")
+_heatmap(heatmap_df, title="Attribute Importance Heatmap (Median by Channel)")
 
-# ------------- NEW UI: Channel Trends Over Time -------------
-st.subheader(\"Channel Trends Over Time\")
-st.caption(\"Line chart of median attribute scores by month for a selected channel. Uses the same filters above (Entities, Variants).\")
+# ---------------- Channel Trends Over Time ----------------
+st.subheader("Channel Trends Over Time")
+st.caption("12-month synthetic median attribute trends, per selected channel (demo data).")
 
+def _seed_demo_trends():
+    """Create a 12-month synthetic time series per (channel, attribute).
+    Stored in st.session_state['monthly_attr_trends'] as a tidy DataFrame.
+    """
+    if "monthly_attr_trends" in st.session_state:
+        return
 
-tcol1, tcol2 = st.columns([2,1])
-with tcol1:
-    trend_channel = st.selectbox(\"Channel for trends\", CHANNELS, index=0)
-with tcol2:
-    months_back = st.slider(\"Months to display\", min_value=3, max_value=12, value=6, step=1)
+    # Build 12 month labels ending in the current month
+    months = pd.date_range(
+        end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
+        periods=12,
+        freq="M",
+    ).strftime("%Y-%m")
 
-trend_df = _records_to_trends(trend_channel, months_back=months_back,
-                              entities=sel_entities or None, variants=sel_variants or None)
-_trend_plot(trend_df, trend_channel)
+    rows = []
+    for ch in CHANNELS:  # uses your existing CHANNELS
+        for attr in ATTRS:  # uses your existing ATTRS
+            # Stable randomness per (channel, attribute)
+            seed_val = abs(hash(f"{ch}:{attr}")) % (2**32)
+            random.seed(seed_val)
+
+            base = random.uniform(0.35, 0.75)      # starting level
+            slope = random.uniform(-0.05, 0.08) / 11  # gentle trend over the year
+            val = base
+            for m in months:
+                # add small monthly noise and clamp to [0.05, 0.95]
+                val = max(0.05, min(0.95, val + slope + random.uniform(-0.03, 0.03)))
+                rows.append({
+                    "Channel": ch,
+                    "Month": m,
+                    "Attribute": attr.replace("_"," "),
+                    "Score": round(val, 3),
+                })
+
+    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
+
+def _plot_channel_trends(df_channel: pd.DataFrame):
+    # Expect tidy DF filtered to one channel: cols = Channel, Month, Attribute, Score
+    # Pivot for convenience in table view; plot as multi-line by attribute.
+    fig = go.Figure()
+    for attr in sorted(df_channel["Attribute"].unique()):
+        sdf = df_channel[df_channel["Attribute"] == attr].sort_values("Month")
+        fig.add_trace(go.Scatter(
+            x=sdf["Month"],
+            y=sdf["Score"],
+            mode="lines+markers",
+            name=attr
+        ))
+    fig.update_layout(
+        title="Attribute trends (12 months)",
+        xaxis_title="Month",
+        yaxis_title="Score",
+        yaxis=dict(range=[0, 1]),
+        margin=dict(l=40, r=20, t=60, b=40),
+        legend_title="Attribute"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Also show a compact wide table for quick copy/export
+    wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
+    st.dataframe(wide, use_container_width=True)
+
+# Seed once per session
+_seed_demo_trends()
+
+# Selector and plot
+trend_channel = st.selectbox("Select channel", CHANNELS, index=0, key="trend_channel")
+trend_df = st.session_state["monthly_attr_trends"]
+trend_df_channel = trend_df[trend_df["Channel"] == trend_channel]
+
+_plot_channel_trends(trend_df_channel)

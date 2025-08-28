@@ -1,4 +1,3 @@
-
 import json
 import random
 import httpx
@@ -6,7 +5,6 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from pathlib import Path
-import re
 
 # ---------- Brand Theme ----------
 BRAND_BLUE   = "#445DA7"  # Original
@@ -59,97 +57,14 @@ def _schema() -> dict:
         "additionalProperties": False,
     }
 
-def _strip_code_fences(text: str) -> str:
-    # Remove ```json ... ``` or ``` ... ``` fences if present
-    text = text.strip()
-    if text.startswith("```"):
-        # drop first fence line
-        parts = text.split("\n", 1)
-        text = parts[1] if len(parts) == 2 else ""
-        # drop ending fence
-        if text.rstrip().endswith("```"):
-            text = text.rsplit("```", 1)[0]
-    return text.strip()
-
-def _extract_json_substring(text: str) -> str | None:
-    """Return the first top-level JSON object/array substring using brace matching.
-    Handles strings and escapes to avoid premature closing.
-    """
-    text = _strip_code_fences(text)
-    # Try a direct load first
-    try:
-        json.loads(text)
-        return text
-    except Exception:
-        pass
-
-    # Find first { or [
-    start_idx = None
-    for i, ch in enumerate(text):
-        if ch in '{[':
-            start_idx = i
-            break
-    if start_idx is None:
-        return None
-
-    stack = [text[start_idx]]
-    i = start_idx + 1
-    in_str = False
-    esc = False
-    while i < len(text):
-        ch = text[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == '\\':
-                esc = True
-            elif ch == '"':
-                in_str = False
-        else:
-            if ch == '"':
-                in_str = True
-            elif ch in '{[':
-                stack.append(ch)
-            elif ch in '}]':
-                if not stack:
-                    return None
-                top = stack[-1]
-                if (top == '{' and ch == '}') or (top == '[' and ch == ']'):
-                    stack.pop()
-                    if not stack:
-                        # Found matching end
-                        candidate = text[start_idx:i+1]
-                        try:
-                            json.loads(candidate)
-                            return candidate
-                        except Exception:
-                            # keep scanning in case there is another valid block later
-                            pass
-                else:
-                    # mismatched brace, abort
-                    return None
-        i += 1
-    return None
-
 def _parse_json_block(text: str) -> dict:
-    # Most robust JSON extractor: code-fence removal, brace matching, and smart-quote normalization
-    if not isinstance(text, str):
-        raise RuntimeError("Model did not return text content.")
-    # Normalize common smart quotes to straight quotes
-    text = text.replace('\u201c', '"').replace('\u201d', '"').replace('“','"').replace('”','"').replace('’',"'").replace('‘',"'")
-    # Remove trailing junk like \"}...note\" after the JSON
-    candidate = _extract_json_substring(text)
-    if candidate is None:
-        raise RuntimeError("Model did not return JSON. Output was: " + text[:400])
     try:
-        return json.loads(candidate)
-    except json.JSONDecodeError as e:
-        # Last-resort: try to replace single quotes with double quotes if it looks like JSON-ish
-        jlike = re.sub(r"(?<!\\)'", '"', candidate)
-        try:
-            return json.loads(jlike)
-        except Exception:
-            raise RuntimeError(f"Could not parse JSON. Error: {e}. Output was: {text[:400]}")
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(text[start:end+1])
+        raise RuntimeError("Model did not return JSON. Output was: " + text[:200])
 
 def _call_messages(api_key: str, system: str, user_content: str, model: str, temperature: float = 0.2, max_tokens: int = 700) -> str:
     headers = {
@@ -171,13 +86,7 @@ def _call_messages(api_key: str, system: str, user_content: str, model: str, tem
         except httpx.HTTPStatusError as e:
             raise RuntimeError(f"HTTP {e.response.status_code} from Anthropic ({model}) — {e.response.text}")
     data = r.json()
-    # Some responses have multiple content blocks. Join all text blocks.
-    blocks = data.get("content", [])
-    texts = []
-    for b in blocks:
-        if isinstance(b, dict) and b.get("type") == "text" and "text" in b:
-            texts.append(b["text"])
-    return "\n".join(texts) if texts else (blocks[0]["text"] if blocks and isinstance(blocks[0], dict) and "text" in blocks[0] else "")
+    return data["content"][0]["text"]
 
 def _with_fallback(func, *args, **kwargs):
     try:
@@ -215,21 +124,8 @@ Original:
 {text}"""
     def run(model, api_key_inner, prompt_text):
         out_text = _call_messages(api_key_inner, SYSTEM_REWRITE, prompt_text, model, temperature=0.4, max_tokens=400)
-        try:
-            data = _parse_json_block(out_text)
-            candidate = data.get("rewrite", "").strip()
-            if candidate:
-                return candidate
-        except Exception:
-            pass
-        # Fallbacks if the model didn't send valid JSON:
-        # 1) If output looks like plain text, use it directly (trim to ~70 words)
-        clean = _strip_code_fences(out_text).strip()
-        if clean:
-            words = clean.split()
-            return " ".join(words[:70])
-        # 2) Last resort: return original
-        return text
+        data = _parse_json_block(out_text)
+        return data.get("rewrite", "").strip()
     rewrite, _ = _with_fallback(run, api_key, instr)
     return rewrite or text
 
@@ -244,14 +140,8 @@ Original:
 {base_text}"""
     def run(model, api_key_inner, uc):
         out_text = _call_messages(api_key_inner, SYSTEM_IDEA, uc, model, temperature=0.6, max_tokens=500)
-        try:
-            data = _parse_json_block(out_text)
-            ideas = data.get("ideas", [])
-            return [i.strip() for i in ideas if isinstance(i, str) and i.strip()]
-        except Exception:
-            # fallback: split lines/bullets if model didn't follow JSON
-            lines = [l.strip("-• ").strip() for l in _strip_code_fences(out_text).splitlines() if l.strip()]
-            return [l for l in lines if l][:n]
+        data = _parse_json_block(out_text)
+        return data.get("ideas", [])
     ideas, _ = _with_fallback(run, api_key, prompt)
     return [i.strip() for i in ideas if isinstance(i, str) and i.strip()]
 
@@ -413,7 +303,7 @@ with hdr_right:
 
 api_key = st.secrets.get("ANTHROPIC_API_KEY", "").strip()
 if not api_key:
-    st.info('Add your key in Settings → Secrets as:\nANTHROPIC_API_KEY = "sk-ant-..."')
+    st.info('Add your key in Settings → Secrets as:\\nANTHROPIC_API_KEY = "sk-ant-..."')
 
 st.markdown("**Attributes**")
 st.markdown('<div class="badges">' + " ".join(
@@ -593,140 +483,65 @@ heatmap_df = _records_to_channel_attr_medians(entities=sel_entities or None, var
 _heatmap(heatmap_df, title="Attribute Importance Heatmap (Median by Channel)")
 
 
-# ---------------- Channel Trends Over Time ----------------
-st.subheader("Channel Trends Over Time")
-st.caption("Radar plots showing median attribute scores by channel per month.")
+from plotly.subplots import make_subplots
 
-import calendar
-import numpy as np
-
-def _generate_demo_monthly_records():
-    _init_records()
-    if "monthly_records" in st.session_state:
-        return
-    st.session_state["monthly_records"] = []
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-    for m_idx, m in enumerate(months):
-        for ch_idx, ch in enumerate(CHANNELS):
-            # deterministic seed for repeatability
-            seed = 1000 + m_idx*10 + ch_idx
-            scores = random_competitor_scores(seed=seed)
-            st.session_state["monthly_records"].append({
-                "month": m,
-                "channel": ch,
-                "scores": scores
-            })
-
-def _monthly_medians(channel: str):
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-    vals = {m: {a: [] for a in ATTRS} for m in months}
-    for r in st.session_state.get("monthly_records", []):
-        if r["channel"] != channel:
-            continue
-        for a in ATTRS:
-            vals[r["month"]][a].append(float(r["scores"][a]["score"]))
-    med = {m: [np.median(vals[m][a]) if vals[m][a] else 0.0 for a in ATTRS] for m in months}
-    return months, med
-
-def _radar_by_month(channel: str):
-    months, med = _monthly_medians(channel)
+def _overlay_radar_for_channel(trend_df: pd.DataFrame, channel: str):
+    """Single polar chart with one trace per month for the selected channel."""
+    sub = trend_df[trend_df["Channel"] == channel].copy()
+    sub = sub.sort_values("Month")
+    if sub.empty:
+        return None
     fig = go.Figure()
-    colors = ["#445DA7", "#6B3894", "#2AA9A1", "#FF7F0E", "#2E3C71", "#8C564B"]
-    for i, m in enumerate(months):
+    months = list(sub["Month"].unique())
+    for m in months:
+        row = sub[sub["Month"] == m].iloc[0]
+        vals = [float(row[a.replace("_"," ")]) if pd.notnull(row[a.replace("_"," ")]) else 0.0 for a in ATTRS]
         fig.add_trace(go.Scatterpolar(
-            r=med[m] + [med[m][0]],
-            theta=ATTRS + [ATTRS[0]],
+            r=vals + vals[:1],
+            theta=ATTRS + ATTRS[:1],
             fill="toself",
             name=m,
-            line=dict(color=colors[i % len(colors)], width=2)
+            line=dict(width=2)
         ))
-    fig.update_layout(title=f"Monthly Trend – {channel}", polar=dict(radialaxis=dict(range=[0, 1])))
+    fig.update_layout(
+        title=f"Monthly Trend — {channel}",
+        polar=dict(radialaxis=dict(range=[0,1], showline=False, gridcolor="lightgrey")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="left", x=0),
+        margin=dict(l=40, r=20, t=60, b=20),
+        showlegend=True
+    )
     return fig
 
-_generate_demo_monthly_records()
-
-sel_channel = st.selectbox("Select channel for trend", CHANNELS, index=0)
-st.plotly_chart(_radar_by_month(sel_channel), use_container_width=True)
-
-
-# ============== Time-Series Helpers (Channel Trends Over Time) ==============
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-
-def _month_labels(n_months: int = 6):
-    """Return list of YYYY-MM labels for the most recent n_months including current month."""
-    today = datetime.today().replace(day=1)
-    months = []
-    for i in range(n_months-1, -1, -1):
-        m = today - relativedelta(months=i)
-        months.append(m.strftime("%Y-%m"))
-    return months
-
-def _upsert_record_ts(entity: str, channel: str, variant: str, scores: dict, month_label: str):
-    """Insert/update a time-stamped record for monthly trends."""
-    _init_records()
-    key = (entity, channel, variant, month_label)
-    for r in st.session_state["score_records"]:
-        if (r.get("entity"), r.get("channel"), r.get("variant"), r.get("month")) == key:
-            r["scores"] = scores
-            break
-    else:
-        st.session_state["score_records"].append({
-            "entity": entity, "channel": channel, "variant": variant, "scores": scores, "month": month_label
-        })
-
-def _seed_full_demo_time_series(n_months: int = 6):
-    """Frontload demo with multiple months of scores across channels and entities."""
-    _init_records()
-    # Only seed if we don't already have monthly data for all channels
-    if any(r.get("month") for r in st.session_state["score_records"]):
-        return
-    months = _month_labels(n_months)
-    for c_idx, ch in enumerate(CHANNELS):
-        for m_idx, m in enumerate(months):
-            # Use deterministic seeds so demo is stable run-to-run
-            base_seed = 1000 + c_idx*97 + m_idx*13
-            client_orig = random_competitor_scores(seed=base_seed)
-            client_impr = random_competitor_scores(seed=base_seed + 1)
-            comp_a      = random_competitor_scores(seed=base_seed + 2)
-            _upsert_record_ts("Client", ch, "Original", client_orig, m)
-            _upsert_record_ts("Client", ch, "Improved", client_impr, m)
-            _upsert_record_ts("Competitor A", ch, "Competitor", comp_a, m)
-
-def _monthly_channel_attr_medians(entities: list[str] | None = None, variants: list[str] | None = None) -> pd.DataFrame:
-    """Return wide DF with rows per (Month, Channel) and columns for attributes -> median Score."""
-    _init_records()
-    rows = []
-    for r in st.session_state["score_records"]:
-        if entities and r.get("entity") not in entities:
-            continue
-        if variants and r.get("variant") not in variants:
-            continue
-        channel = r.get("channel")
-        month   = r.get("month") or datetime.today().strftime("%Y-%m")
-        sc = r["scores"]
-        for attr in ATTRS:
-            rows.append({"Month": month, "Channel": channel, "Attribute": attr.replace("_", " "), "Score": float(sc[attr]["score"])})
-    if not rows:
-        return pd.DataFrame(columns=["Month","Channel"] + [a.replace("_"," ") for a in ATTRS])
-    df = pd.DataFrame(rows)
-    med = df.groupby(["Month","Channel","Attribute"], as_index=False)["Score"].median()
-    pivot = med.pivot(index=["Month","Channel"], columns="Attribute", values="Score").reset_index()
-    # Order columns consistently
-    ordered = ["Month","Channel"] + [a.replace("_"," ") for a in ATTRS]
-    for col in ordered:
-        if col not in pivot.columns:
-            pivot[col] = None
-    pivot = pivot[ordered]
-    # Sort by Month ascending then channel according to CHANNELS order
-    pivot["Channel"] = pd.Categorical(pivot["Channel"], categories=CHANNELS, ordered=True)
-    pivot = pivot.sort_values(["Month","Channel"]).reset_index(drop=True)
-    return pivot
-
-def _radar_from_row(row: pd.Series, title: str, fill_color: str, line_color: str):
-    """Create a radar chart from a single wide row containing attribute columns."""
-    vals = [float(row[a.replace("_"," ")]) if pd.notnull(row[a.replace("_"," ")]) else 0.0 for a in ATTRS]
-    return radar(
-        {a: {"score": vals[i], "evidence": ""} for i, a in enumerate(ATTRS)},
-        title, fill_color, line_color
+def _small_multiples_radar(trend_df: pd.DataFrame, channel: str):
+    """Grid of 6 monthly radars for the selected channel."""
+    sub = trend_df[trend_df["Channel"] == channel].copy()
+    sub = sub.sort_values("Month")
+    months = list(sub["Month"].unique())
+    if not months:
+        return None
+    # Determine grid size (2 rows x 3 cols for up to 6 months)
+    rows, cols = 2, 3
+    fig = make_subplots(
+        rows=rows, cols=cols,
+        specs=[[{"type": "polar"}]*cols for _ in range(rows)],
+        subplot_titles=months
     )
+    for idx, m in enumerate(months[: rows*cols ]):
+        r_i = idx // cols + 1
+        c_i = idx % cols + 1
+        row = sub[sub["Month"] == m].iloc[0]
+        vals = [float(row[a.replace("_"," ")]) if pd.notnull(row[a.replace("_"," ")]) else 0.0 for a in ATTRS]
+        fig.add_trace(go.Scatterpolar(
+            r=vals + vals[:1],
+            theta=ATTRS + ATTRS[:1],
+            fill="toself",
+            showlegend=False,
+            line=dict(width=2)
+        ), row=r_i, col=c_i)
+        fig.update_polars(radialaxis=dict(range=[0,1]), row=r_i, col=c_i)
+    fig.update_layout(
+        title=f"Monthly Trend — {channel}",
+        margin=dict(l=20, r=20, t=60, b=20),
+        height=520
+    )
+    return fig

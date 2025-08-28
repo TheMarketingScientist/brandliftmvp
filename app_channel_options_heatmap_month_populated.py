@@ -451,6 +451,8 @@ if base_scores and improved_scores:
     st.subheader("Score Changes (Original → Improved)")
     st.dataframe(delta_table(base_scores, improved_scores), use_container_width=True)
 
+
+st.markdown("## Channel Trends Over Time")
 # ---------------- Heatmap View ----------------
 st.subheader("Attribute Importance Heatmap")
 st.caption("Color-coded median scores of each attribute across channels from all scored items (client, improved, and competitors).")

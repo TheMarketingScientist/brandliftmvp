@@ -453,6 +453,52 @@ if base_scores and improved_scores:
 
 
 st.markdown("## Channel Trends Over Time")
+
+
+# ---------------- Channel Attribute Trends (Line Charts) ----------------
+st.subheader("Channel Attribute Trends")
+st.caption("Line trends of monthly **median** scores for each attribute, for a selected channel.")
+
+# Guarantee demo data exists
+_seed_full_demo_time_series(n_months=6)
+
+trend_df = _monthly_channel_attr_medians()
+
+if trend_df.empty:
+    st.info("Not enough data yet to display trends. Score some items first.")
+else:
+    channel = st.selectbox("Select channel", CHANNELS, index=2, key="trend_line_channel")
+    # Build long (Month, Attribute, Score) for the chosen channel
+    ch_df = trend_df[trend_df["Channel"] == channel].copy()
+    if ch_df.empty:
+        st.warning("No data for this channel yet.")
+    else:
+        # Ensure month order
+        ch_df = ch_df.sort_values("Month")
+        long_df = ch_df.melt(id_vars=["Month","Channel"], var_name="Attribute", value_name="Score")
+        # Plot with Plotly
+        fig = go.Figure()
+        for attr in [a.replace("_"," ") for a in ATTRS]:
+            s = long_df[long_df["Attribute"] == attr]
+            fig.add_trace(go.Scatter(
+                x=s["Month"], y=s["Score"],
+                mode="lines+markers",
+                name=attr
+            ))
+        fig.update_layout(
+            title=f"Monthly Median Trend — {channel}",
+            xaxis_title="Month",
+            yaxis_title="Score (0–1)",
+            yaxis=dict(range=[0,1]),
+            legend=dict(orientation="h", yanchor="bottom", y=1.1, xanchor="left", x=0),
+            margin=dict(l=40, r=20, t=60, b=20),
+            height=420
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        with st.expander("Show data table"):
+            st.dataframe(long_df, use_container_width=True)
+
 # ---------------- Heatmap View ----------------
 st.subheader("Attribute Importance Heatmap")
 st.caption("Color-coded median scores of each attribute across channels from all scored items (client, improved, and competitors).")

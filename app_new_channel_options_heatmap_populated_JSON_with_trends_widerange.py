@@ -597,53 +597,71 @@ st.subheader("Channel Trends Over Time")
 st.caption("12-month synthetic median attribute trends, per selected channel (demo data).")
 
 
-def _seed_demo_trends():
-    """Create a 12-month synthetic time series per (channel, attribute) with wide 0–1 coverage.
-    Stored in st.session_state['monthly_attr_trends'] as a tidy DataFrame.
-    """
-    import math
 
+def _seed_demo_trends():
+    """Create 12-month synthetic time series per (channel, attribute) using pure random walks.
+    Goal: different start values and broad coverage of [0,1] over the year.
+    """
     if "monthly_attr_trends" in st.session_state:
         return
 
-    # 12 month labels ending this month
     months = pd.date_range(
         end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
         periods=12,
         freq="M",
     ).strftime("%Y-%m")
 
+    def random_walk_series(seed: int, start: float) -> list[float]:
+        random.seed(seed)
+        vals = [max(0.0, min(1.0, start))]
+        # Step size tuned to allow large excursions; reflect at boundaries
+        sigma = 0.16  # base volatility
+        for _ in range(1, 12):
+            step = random.gauss(0.0, sigma)
+            nxt = vals[-1] + step
+
+            # Reflect at boundaries to stay within [0,1] while keeping "walk" behavior
+            if nxt < 0.0:
+                nxt = -nxt
+            if nxt > 1.0:
+                nxt = 2.0 - nxt
+
+            vals.append(max(0.0, min(1.0, nxt)))
+
+        # If the span is too narrow, expand around the mean to cover more of [0,1]
+        vmin, vmax = min(vals), max(vals)
+        span = vmax - vmin
+        if span < 0.65:
+            mean = sum(vals) / len(vals)
+            expand = (0.80 / max(span, 1e-6))  # target ~0.8 span
+            vals = [mean + (v - mean) * expand for v in vals]
+            # Reflect/clamp again
+            vals = [min(1.0, max(0.0, (2.0 - v) if v > 1.0 else (-v if v < 0.0 else v))) for v in vals]
+
+        # Softly pull extremes toward near-bounds to guarantee visible coverage
+        vmin, vmax = min(vals), max(vals)
+        if vmax < 0.92:
+            add = 0.92 - vmax
+            vals = [min(1.0, v + add * 0.6) for v in vals]
+        if vmin > 0.08:
+            sub = vmin - 0.08
+            vals = [max(0.0, v - sub * 0.6) for v in vals]
+
+        return [round(v, 3) for v in vals]
+
     rows = []
     for ch in CHANNELS:
         for attr in ATTRS:
-            # Stable randomness per (channel, attribute)
-            seed_val = abs(hash(f"{ch}:{attr}:range")) % (2**32)
-            random.seed(seed_val)
-
-            # Choose a broad min/max so the series spans most of [0,1]
-            min_v = random.uniform(0.02, 0.12)
-            max_v = random.uniform(0.88, 0.98)
-            center = (min_v + max_v) / 2.0
-            amp = (max_v - min_v) / 2.0
-
-            # Random phase and slight frequency jitter to vary shapes
-            phase = random.uniform(0, 2*math.pi)
-            # Slightly non-integer cycle to avoid perfect symmetry
-            freq = 2*math.pi / 11.0 * random.uniform(0.9, 1.1)
-
-            # Small noise amplitude
-            noise_amp = 0.035
-
-            for i, m in enumerate(months):
-                # Smooth seasonal curve + noise
-                base = center + amp * math.sin(freq * i + phase)
-                noisy = base + random.uniform(-noise_amp, noise_amp)
-                val = max(0.0, min(1.0, noisy))
+            seed_val = abs(hash(f"rw:{ch}:{attr}")) % (2**32)
+            # Start at diverse points across [0.05, 0.95]
+            start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
+            series = random_walk_series(seed_val, start)
+            for m, v in zip(months, series):
                 rows.append({
                     "Channel": ch,
                     "Month": m,
                     "Attribute": attr.replace("_"," "),
-                    "Score": round(val, 3),
+                    "Score": v,
                 })
 
     st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)

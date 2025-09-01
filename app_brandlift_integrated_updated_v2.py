@@ -543,7 +543,7 @@ with st.expander("🎯 Desired attribute targets", expanded=True):
 st.subheader("Attribute Importance Heatmap")
 # ---------------- Channel Trends Over Time ----------------
 st.subheader("Channel Trends Over Time")
-    entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
+        entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
     variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
     def random_walk_series(seed: int, start: float) -> list[float]:
         import random as _rnd

@@ -497,226 +497,57 @@ def _attribute_correlation(df_long: pd.DataFrame) -> pd.DataFrame:
     return corr
 
 def render_correlation_section():
-    st.subheader("Attribute Correlation Explorer")
-            return
-
-    fig = px.imshow(
-        corr.values, x=list(corr.columns), y=list(corr.index),
-        zmin=-1, zmax=1, color_continuous_scale=BRAND_DIVERGING,
-        text_auto=True, aspect="auto"
-    )
-    fig.update_layout(
-        margin=dict(l=60, r=30, t=30, b=60),
-        coloraxis_colorbar=dict(title="Corr", tickformat=".2f")
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Top pairs
-    pairs = []
-    cols = list(corr.columns)
-    for i in range(len(cols)):
-        for j in range(i+1, len(cols)):
-            pairs.append((cols[i], cols[j], float(corr.iloc[i, j])))
-    dfp = pd.DataFrame(pairs, columns=["Attribute A", "Attribute B", "Correlation"]).sort_values("Correlation", ascending=False)
-    pos = dfp.head(5).reset_index(drop=True)
-    neg = dfp.tail(5).sort_values("Correlation").reset_index(drop=True)
-
-        with comp_cols[1]:
-        comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
-    comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
-    comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)
-    score_comp = st.button("Score Competitor", use_container_width=True)
-
-
-# --- Desired Attribute Targets (sliders) ---
-with st.expander("🎯 Desired attribute targets", expanded=True):
-    desired_targets = {}
-    cols = st.columns(3)
-    for i, a in enumerate(ATTRS):
-        with cols[i % 3]:
-            pretty = _pretty_attr(a)
-            # Default targets are moderate-strong to create a "wow" effect on first demo
-            desired_targets[pretty] = st.slider(pretty, 0.0, 1.0, 0.78, 0.01, help="Target perceived level for this attribute")
-    # ---------------- Heatmap View ----------------
-
-# ---------------- Heatmap View ----------------
-st.subheader("Attribute Importance Heatmap")
-# ---------------- Channel Trends Over Time ----------------
-
-def render_channel_trends_section():
-    import math
-    import random as _rnd
     import pandas as pd
-    import plotly.graph_objects as go
+    import plotly.express as px
 
-    st.subheader("Channel Trends Over Time")
-
-    # Safeguards
-    score_records = st.session_state.get("score_records", [])
-    if not score_records:
-        st.info("No scores yet. Add & score at least one Client and Competitor copy to see trends.")
-        return
-
-    entities = sorted({r.get("entity", "Client") for r in score_records} | {"Client"})
-    variants = sorted({r.get("variant", "Original") for r in score_records} | {"Original","Improved","Competitor"})
-
-    # Synthetic, repeatable walk per (entity, variant, channel, attribute)
-    months = [f"2025-{m:02d}" for m in range(1, 13)]
-    def random_walk_series(seed, start=0.6):
-        _rnd.seed(seed)
-        sigma = 0.16
-        vals = [max(0.0, min(1.0, start))]
-        for _ in range(1, 12):
-            step = _rnd.gauss(0, sigma)
-            nxt = vals[-1] + step
-            if nxt < 0.0: nxt = 0.0
-            if nxt > 1.0: nxt = 1.0
-            vals.append(nxt)
-        # expand range a bit for visual separation
-        vmin, vmax = min(vals), max(vals)
-        span = vmax - vmin
-        if span < 0.5:
-            mean = sum(vals)/len(vals)
-            expand = (0.80 - max(span, 1e-6))
-            vals = [max(0.0, min(1.0, v + (0.3 if v < mean else -0.3) * (expand/2))) for v in vals]
-        # final clamp and rounding
-        vals = [max(0.0, min(1.0, v)) for v in vals]
-        return [round(v, 3) for v in vals]
-
-    rows = []
-    for ent in entities:
-        for var in variants:
-            for ch in CHANNELS:
-                for attr in ATTRS:
-                    seed_val = abs(hash(f"{ent}:{var}:{ch}:{attr}")) % (2**32)
-                    start0 = 0.55 + ((seed_val % 9000) / 9000.0) * 0.25  # 0.55–0.80
-                    series = random_walk_series(seed_val, start0)
-                    for m, v in zip(months, series):
-                        rows.append({
-                            "Entity": ent,
-                            "Variant": var,
-                            "Channel": ch,
-                            "Month": m,
-                            "Attribute": _pretty_attr(attr),
-                            "Score": v,
-                        })
-    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
-
-    df = st.session_state["monthly_attr_trends"]
-
-    # Simple UI: pick a channel and show one line per attribute
-    ch_sel = st.selectbox("Select a channel", CHANNELS, index=CHANNELS.index("TV") if "TV" in CHANNELS else 0)
-    ent_sel = st.selectbox("Entity", entities, index=0)
-    var_sel = st.selectbox("Variant", variants, index=variants.index("Improved") if "Improved" in variants else 0)
-
-    df_line = df[(df["Channel"] == ch_sel) & (df["Entity"] == ent_sel) & (df["Variant"] == var_sel)]
-    if df_line.empty:
-        st.info("No trend data for this selection yet.")
-        return
-
-    fig = go.Figure()
-    for attr in sorted(df_line["Attribute"].unique()):
-        sdf = df_line[df_line["Attribute"] == attr].sort_values("Month")
-        fig.add_trace(go.Scatter(x=sdf["Month"], y=sdf["Score"], mode="lines", name=attr))
-    fig.update_layout(height=360, margin=dict(l=20,r=20,t=20,b=20), yaxis=dict(range=[0,1]))
-    st.plotly_chart(fig, use_container_width=True)
-
-# render section
-render_channel_trends_section()
-
-def render_correlation_section():
     st.subheader("Attribute Correlation Explorer")
+
+    # Build a long df from score_records if not already present
+    df_long = st.session_state.get("score_df_long")
+    if df_long is None:
+        recs = st.session_state.get("score_records", [])
+        if not recs:
+            st.info("No scores yet. Score some copies to see correlations.")
             return
+        rows = []
+        for r in recs:
+            ent = r.get("entity", "Client")
+            ch = r.get("channel", "TV")
+            var = r.get("variant", "Original")
+            scores = r.get("scores", {})
+            for a in ATTRS:
+                val = None
+                if isinstance(scores, dict) and a in scores and isinstance(scores[a], dict):
+                    val = scores[a].get("score")
+                if val is not None:
+                    rows.append({
+                        "entity": ent,
+                        "channel": ch,
+                        "variant": var,
+                        "attribute": _pretty_attr(a),
+                        "score": float(val),
+                    })
+        df_long = pd.DataFrame(rows)
+
+    corr = _attribute_correlation(df_long)
+    if corr.empty:
+        st.info("Not enough attribute variation yet to compute correlations.")
+        return
 
     fig = px.imshow(
-        corr.values, x=list(corr.columns), y=list(corr.index),
-        zmin=-1, zmax=1, color_continuous_scale=BRAND_DIVERGING,
-        text_auto=True, aspect="auto"
+        corr.values,
+        x=list(corr.columns),
+        y=list(corr.index),
+        zmin=-1, zmax=1,
+        color_continuous_scale=BRAND_DIVERGING,
+        text_auto=True,
+        aspect="auto"
     )
     fig.update_layout(
         margin=dict(l=60, r=30, t=30, b=60),
         coloraxis_colorbar=dict(title="Corr", tickformat=".2f")
     )
     st.plotly_chart(fig, use_container_width=True)
-
-    # Top pairs
-    pairs = []
-    cols = list(corr.columns)
-    for i in range(len(cols)):
-        for j in range(i+1, len(cols)):
-            pairs.append((cols[i], cols[j], float(corr.iloc[i, j])))
-    dfp = pd.DataFrame(pairs, columns=["Attribute A", "Attribute B", "Correlation"]).sort_values("Correlation", ascending=False)
-    pos = dfp.head(5).reset_index(drop=True)
-    neg = dfp.tail(5).sort_values("Correlation").reset_index(drop=True)
-
-        with comp_cols[1]:
-        comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
-    comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
-    comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)
-    score_comp = st.button("Score Competitor", use_container_width=True)
-
-
-# --- Desired Attribute Targets (sliders) ---
-with st.expander("🎯 Desired attribute targets", expanded=True):
-    desired_targets = {}
-    cols = st.columns(3)
-    for i, a in enumerate(ATTRS):
-        with cols[i % 3]:
-            pretty = _pretty_attr(a)
-            # Default targets are moderate-strong to create a "wow" effect on first demo
-            desired_targets[pretty] = st.slider(pretty, 0.0, 1.0, 0.78, 0.01, help="Target perceived level for this attribute")
-    # ---------------- Heatmap View ----------------
-
-# ---------------- Heatmap View ----------------
-st.subheader("Attribute Importance Heatmap")
-# ---------------- Channel Trends Over Time ----------------
-st.subheader("Channel Trends Over Time")
-    entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
-    variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
-    def random_walk_series(seed: int, start: float) -> list[float]:
-        import random as _rnd
-        _rnd.seed(seed)
-        vals = [max(0.0, min(1.0, start))]
-        sigma = 0.16
-        for _ in range(1, 12):
-            step = _rnd.gauss(0.0, sigma)
-            nxt = vals[-1] + step
-            if nxt < 0.0: nxt = -nxt
-            if nxt > 1.0: nxt = 2.0 - nxt
-            vals.append(max(0.0, min(1.0, nxt)))
-        vmin, vmax = min(vals), max(vals)
-        span = vmax - vmin
-        if span < 0.65:
-            mean = sum(vals) / len(vals)
-            expand = (0.80 / max(span, 1e-6))
-            vals = [mean + (v - mean) * expand for v in vals]
-            vals = [min(1.0, max(0.0, (2.0 - v) if v > 1.0 else (-v if v < 0.0 else v))) for v in vals]
-        vmin, vmax = min(vals), max(vals)
-        if vmax < 0.92:
-            add = 0.92 - vmax
-            vals = [min(1.0, v + add * 0.6) for v in vals]
-        if vmin > 0.08:
-            sub = vmin - 0.08
-            vals = [max(0.0, v - sub * 0.6) for v in vals]
-        return [round(v, 3) for v in vals]
-    rows = []
-    for ent in entities:
-        for var in variants:
-            for ch in CHANNELS:
-                for attr in ATTRS:
-                    seed_val = abs(hash(f"rw:{ent}:{var}:{ch}:{attr}")) % (2**32)
-                    start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
-                    series = random_walk_series(seed_val, start)
-                    for m, v in zip(months, series):
-                        rows.append({
-                            "Entity": ent,
-                            "Variant": var,
-                            "Channel": ch,
-                            "Month": m,
-                            "Attribute": _pretty_attr(attr),
-                            "Score": v,
-                        })
-    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
 
 def _plot_channel_trends(df_channel: pd.DataFrame):
     fig = go.Figure()

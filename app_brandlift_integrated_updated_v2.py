@@ -521,7 +521,7 @@ def render_correlation_section():
     pos = dfp.head(5).reset_index(drop=True)
     neg = dfp.tail(5).sort_values("Correlation").reset_index(drop=True)
 
-        with comp_cols[1]:
+    with comp_cols[1]:
         comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
     comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
     comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)

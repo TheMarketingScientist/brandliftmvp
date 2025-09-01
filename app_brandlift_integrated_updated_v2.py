@@ -499,10 +499,7 @@ def _attribute_correlation(df_long: pd.DataFrame) -> pd.DataFrame:
 
 def render_correlation_section():
     """
-    Render Attribute Correlation Explorer:
-    - Builds a long DF from score_records
-    - Computes correlation across attributes (median per entity/channel/variant)
-    - Shows heatmap and top +/- pairs
+    Minimal, stable Attribute Correlation Explorer.
     """
     st.subheader("Attribute Correlation Explorer")
     _init_records()
@@ -543,7 +540,6 @@ def render_correlation_section():
         st.markdown("**Top negative correlations**")
         st.dataframe(dfp.tail(5).sort_values("Correlation").reset_index(drop=True), use_container_width=True)
 
-
 # --- Desired Attribute Targets (sliders) ---
 with st.expander("🎯 Desired attribute targets", expanded=True):
     desired_targets = {}
@@ -555,26 +551,8 @@ with st.expander("🎯 Desired attribute targets", expanded=True):
             desired_targets[pretty] = st.slider(pretty, 0.0, 1.0, 0.78, 0.01, help="Target perceived level for this attribute")
     # ---------------- Heatmap View ----------------
 
-
-
-# ---------------- Heatmap & Trends & Correlation (Clean UI) ----------------
-
-# Ensure records are initialized
-_init_records()
-
-# Mini selectors (Entities / Variants) for both heatmap and trends
-all_entities = sorted({r.get("entity", "Client") for r in st.session_state["score_records"]} | {"Client"})
-all_variants = sorted({r.get("variant", "Original") for r in st.session_state["score_records"]} | {"Original", "Improved", "Competitor"})
-
-with st.expander("🔎 Filters", expanded=True):
-    sel_entities = st.multiselect("Entities", options=all_entities, default=all_entities, key="heat_sel_entities")
-    sel_variants = st.multiselect("Variants", options=all_variants, default=all_variants, key="heat_sel_variants")
-
 # ---------------- Heatmap View ----------------
 st.subheader("Attribute Importance Heatmap")
-hm_df = _records_to_channel_attr_medians(entities=sel_entities or None, variants=sel_variants or None)
-_heatmap(hm_df, title="Attribute Importance Heatmap (Median by Channel)")
-
 # ---------------- Channel Trends Over Time ----------------
 st.subheader("Channel Trends Over Time")
 
@@ -600,18 +578,26 @@ def _plot_channel_trends(df_channel: pd.DataFrame):
     wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
     st.dataframe(wide, use_container_width=True)
 
+
 def _seed_demo_trends():
+    import pandas as pd
+    import random as _rnd
     # If already seeded, skip
     if "monthly_attr_trends" in st.session_state and not st.session_state["monthly_attr_trends"].empty:
         return
 
     score_records = st.session_state.get("score_records", [])
-    entities = sorted({r.get("entity", "Client") for r in score_records} | {"Client"})
-    variants = sorted({r.get("variant", "Original") for r in score_records} | {"Original", "Improved", "Competitor"})
-    months = [f"2025-{m:02d}" for m in range(1, 13)]
+    entities = sorted({r.get("entity","Client") for r in score_records} | {"Client"})
+    variants = sorted({r.get("variant","Original") for r in score_records} | {"Original","Improved","Competitor"})
+
+    if not entities:
+        entities = ["Client"]
+    if not variants:
+        variants = ["Original","Improved","Competitor"]
+
+    months = [f"2025-{m:02d}" for m in range(1,13)]
 
     def _walk(seed: int, start: float = 0.6):
-        import random as _rnd
         _rnd.seed(seed)
         vals = [max(0.0, min(1.0, start))]
         sigma = 0.16
@@ -621,7 +607,7 @@ def _seed_demo_trends():
             if nxt < 0.0: nxt = 0.0
             if nxt > 1.0: nxt = 1.0
             vals.append(nxt)
-        return [round(v, 3) for v in vals]
+        return [round(v,3) for v in vals]
 
     rows = []
     for ent in entities:
@@ -629,7 +615,7 @@ def _seed_demo_trends():
             for ch in CHANNELS:
                 for a in ATTRS:
                     seed = abs(hash(f"{ent}:{var}:{ch}:{a}")) % (2**32)
-                    start = 0.55 + ((seed % 9000) / 9000.0) * 0.25  # 0.55-0.80
+                    start = 0.55 + ((seed % 9000)/9000.0)*0.25  # 0.55-0.80
                     series = _walk(seed, start)
                     for m, v in zip(months, series):
                         rows.append({
@@ -642,15 +628,21 @@ def _seed_demo_trends():
                         })
     st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
 
+
 _seed_demo_trends()
 
-trend_df = st.session_state["monthly_attr_trends"]
 trend_channel = st.selectbox("Select channel", CHANNELS, index=0, key="trend_channel")
+trend_df = st.session_state["monthly_attr_trends"]
 
-# Apply the same entity/variant filters to trends
-ef = set(sel_entities) if sel_entities else set(sorted(trend_df["Entity"].unique()))
-vf = set(sel_variants) if sel_variants else set(sorted(trend_df["Variant"].unique()))
-filtered = trend_df[(trend_df["Entity"].isin(ef)) & (trend_df["Variant"].isin(vf)) & (trend_df["Channel"] == trend_channel)]
+sel_entities = locals().get("sel_entities", None)
+sel_variants = locals().get("sel_variants", None)
+
+try:
+    ef = set(sel_entities) if sel_entities else set(sorted(trend_df["Entity"].unique()))
+    vf = set(sel_variants) if sel_variants else set(sorted(trend_df["Variant"].unique()))
+    filtered = trend_df[(trend_df["Entity"].isin(ef)) & (trend_df["Variant"].isin(vf)) & (trend_df["Channel"] == trend_channel)]
+except NameError:
+    filtered = trend_df[trend_df["Channel"] == trend_channel]
 
 if not filtered.empty:
     agg = (filtered.groupby(["Month", "Attribute"], as_index=False)["Score"].median())

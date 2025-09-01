@@ -498,7 +498,7 @@ def _attribute_correlation(df_long: pd.DataFrame) -> pd.DataFrame:
 
 def render_correlation_section():
     st.subheader("Attribute Correlation Explorer")
-    return
+            return
 
     fig = px.imshow(
         corr.values, x=list(corr.columns), y=list(corr.index),
@@ -521,7 +521,7 @@ def render_correlation_section():
     pos = dfp.head(5).reset_index(drop=True)
     neg = dfp.tail(5).sort_values("Correlation").reset_index(drop=True)
 
-    with comp_cols[1]:
+        with comp_cols[1]:
         comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
     comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
     comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)
@@ -543,8 +543,8 @@ with st.expander("🎯 Desired attribute targets", expanded=True):
 st.subheader("Attribute Importance Heatmap")
 # ---------------- Channel Trends Over Time ----------------
 st.subheader("Channel Trends Over Time")
-        entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
-    variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
+entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
+variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
     def random_walk_series(seed: int, start: float) -> list[float]:
         import random as _rnd
         _rnd.seed(seed)

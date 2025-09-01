@@ -1,220 +1,271 @@
 
+# app_corr_heatmap_branded.py
+# Streamlit helpers for Channel×Attribute heatmaps + Attribute Correlation Explorer
+# with The Marketing Scientist brand colors, filters, and downloads.
+
+from __future__ import annotations
+
 import json
+import math
 import random
-import httpx
-import streamlit as st
-import plotly.graph_objects as go
-import pandas as pd
-from pathlib import Path
-import re
+from typing import Dict, List, Tuple
 
-
-# ============================
-# Enhanced Heatmap & Correlation Helpers (compatible with existing app structures)
-# ============================
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
-import hashlib, random
+import streamlit as st
 
-def _stable_rng(seed_text: str):
-    h = hashlib.md5(seed_text.encode("utf-8")).hexdigest()
-    return random.Random(int(h[:8], 16))
+# ============================
+# Brand palette (from logo)
+# ============================
+BRAND_NAVY   = "#283868"
+BRAND_BLUE   = "#4058A0"
+BRAND_PURPLE = "#603088"
 
-def _ensure_demo_records():
-    """
-    Prefer the app's own _seed_full_demo_heatmap() if it exists.
-    Otherwise, create minimal demo records *matching this app's schema*:
-    st.session_state['score_records'] = [{'entity','channel','variant','scores':{attr:{'score':float}}}]
+# Sequential scale for 0→1 heatmaps (low→high)
+BRAND_SEQ = [BRAND_PURPLE, BRAND_BLUE, BRAND_NAVY]
+
+# Diverging scale for correlations (−1→0→+1)
+BRAND_DIVERGING = [
+    (0.0, BRAND_PURPLE),   # negative
+    (0.5, "#E9E7F4"),      # light neutral
+    (1.0, BRAND_NAVY),     # positive
+]
+
+# ============================
+# Demo data (only used if app hasn't populated session_state yet)
+# ============================
+DEFAULT_CHANNELS = ["TV", "CTV", "Radio", "YouTube", "TikTok", "Meta", "Instagram", "X", "DOOH", "OOH", "Google Ads"]
+DEFAULT_ATTRS    = ["Leadership", "Ease of Use", "Quality", "Luxury", "Cost/Benefit", "Trust"]
+
+def _seed_demo_records(n_entities:int=2, n_variants:int=3, seed:int=42):
+    """Fill st.session_state['score_records'] with minimal demo data ONLY if empty.
+    Schema expected by this helper:
+    {
+      'entity': str, 'channel': str, 'variant': str,
+      'scores': {attribute: {'score': float in [0,1]}}
+    }
     """
     if "score_records" in st.session_state and st.session_state["score_records"]:
         return
-    # Use existing seeder if available
-    if "_seed_full_demo_heatmap" in globals():
-        try:
-            _seed_full_demo_heatmap()
-            return
-        except Exception:
-            pass
-    # Fallback: synthesize some stable demo entries
-    rng = _stable_rng("brandlift-demo-v2")
-    try:
-        channels = CHANNELS
-    except NameError:
-        channels = ["CTV","DOOH","Youtube","TikTok","Google Ads","Instagram","X"]
-    try:
-        attrs_code = ATTRS
-    except NameError:
-        attrs_code = ["Leadership","Ease_of_Use","Quality","Luxury","Cost_Benefit","Trust"]
-    entities = ["Client","Competitor A"]
-    variants = {"Client":["Original","Improved"], "Competitor A":["Competitor"]}
-    recs = []
-    for ch_i, ch in enumerate(channels):
-        for ent in entities:
-            for var in variants[ent]:
+    rng = random.Random(seed)
+    records = []
+    entities = ["Client", "Competitor"]
+    channels = DEFAULT_CHANNELS
+    attrs    = DEFAULT_ATTRS
+    for e in entities[:n_entities]:
+        for ch in channels:
+            for v in range(1, n_variants+1):
                 scores = {}
-                for a_i, a in enumerate(attrs_code):
-                    base = 0.55 if ent=="Client" else 0.6
-                    val = max(0.0, min(1.0, base + (ch_i%5)*0.03 + (a_i%3)*0.025 + rng.uniform(-0.08,0.08)))
-                    scores[a] = {"score": round(val,3), "evidence": ""}
-                recs.append({"entity": ent, "channel": ch, "variant": var, "scores": scores})
-    st.session_state["score_records"] = recs
+                base = rng.uniform(0.35, 0.65)
+                # channel bias
+                ch_bias = (channels.index(ch) / (len(channels)-1) - 0.5) * 0.15
+                for a in attrs:
+                    a_bias = (attrs.index(a) / (len(attrs)-1) - 0.5) * 0.18
+                    val = base + ch_bias + a_bias + rng.uniform(-0.12, 0.12)
+                    scores[a] = {"score": max(0.0, min(1.0, val))}
+                records.append({
+                    "entity": e,
+                    "channel": ch,
+                    "variant": f"V{v}",
+                    "scores": scores
+                })
+    st.session_state["score_records"] = records
 
-def _get_channel_attribute_pivot():
-    """
-    Return a pivot DataFrame with index 'Channel' and attribute columns (space-normalized),
-    using the app's native helper if present.
-    """
-    if "_records_to_channel_attr_medians" in globals():
-        try:
-            df = _records_to_channel_attr_medians()
-            # If helper returns reset_index(), ensure Channel is index for plotting convenience
-            if "Channel" in df.columns:
-                df = df.set_index("Channel")
-            return df
-        except Exception as _e:
-            pass
-    # Fallback: build from score_records directly
-    if "score_records" not in st.session_state or not st.session_state["score_records"]:
-        return pd.DataFrame()
+# ============================
+# Data transforms
+# ============================
+def _records_to_long_df(records: List[dict]) -> pd.DataFrame:
+    """Flatten records into long form: entity, channel, variant, attribute, score"""
     rows = []
-    # Determine attribute keys from first record
-    attrs_code = None
-    for r in st.session_state["score_records"]:
-        if isinstance(r.get("scores"), dict):
-            attrs_code = list(r["scores"].keys())
-            break
-    if not attrs_code:
-        return pd.DataFrame()
-    for r in st.session_state["score_records"]:
+    for r in records:
+        e = r.get("entity")
         ch = r.get("channel")
-        sc = r.get("scores", {})
-        for a in attrs_code:
-            try:
-                rows.append({"Channel": ch, "Attribute": a.replace("_"," "), "Score": float(sc[a]["score"])})
-            except Exception:
-                continue
-    if not rows:
-        return pd.DataFrame()
+        v = r.get("variant")
+        scores = r.get("scores", {})
+        for a, obj in scores.items():
+            val = obj["score"] if isinstance(obj, dict) and "score" in obj else obj
+            rows.append({"entity": e, "channel": ch, "variant": v, "attribute": a, "score": float(val)})
     df = pd.DataFrame(rows)
-    med = df.groupby(["Channel","Attribute"], as_index=False)["Score"].median()
-    pivot = med.pivot(index="Channel", columns="Attribute", values="Score")
-    return pivot
+    # Clean potential weirdness
+    if not df.empty:
+        df = df.dropna(subset=["score"])
+        df = df[(df["score"]>=0) & (df["score"]<=1)]
+    return df
 
-def render_attribute_heatmap_enhanced(show_values=True, decimals=2, sort_by_attr=None, title="Channel × Attribute (Median Scores)"):
-    piv = _get_channel_attribute_pivot()
-    if piv is None or piv.empty:
-        st.info("No scores yet to build the heatmap.")
-        return
-    # Optional sorting
+def _channel_attribute_medians(df_long: pd.DataFrame) -> pd.DataFrame:
+    """Return a Channel×Attribute pivot of medians in [0,1]."""
+    if df_long.empty:
+        return pd.DataFrame()
+    piv = (
+        df_long
+        .groupby(["channel", "attribute"], as_index=False)["score"]
+        .median()
+        .pivot(index="channel", columns="attribute", values="score")
+        .sort_index()
+    )
+    return piv
+
+def _attribute_correlation(df_long: pd.DataFrame) -> pd.DataFrame:
+    """Compute attribute correlation matrix across creatives (entity×channel×variant rows)."""
+    if df_long.empty:
+        return pd.DataFrame()
+    wide = (
+        df_long
+        .pivot_table(index=["entity","channel","variant"], columns="attribute", values="score", aggfunc="median")
+        .sort_index()
+    )
+    if wide.empty:
+        return pd.DataFrame()
+    # Drop attributes with zero variance
+    non_const = wide.loc[:, wide.std(numeric_only=True) > 1e-12]
+    if non_const.shape[1] < 2:
+        return pd.DataFrame()
+    corr = non_const.corr(numeric_only=True)
+    return corr
+
+# ============================
+# UI renderers
+# ============================
+def render_heatmap(df_long: pd.DataFrame, use_brand: bool=True, show_values: bool=True, decimals: int=2, sort_by_attr: str|None=None):
+    piv = _channel_attribute_medians(df_long)
+    if piv.empty:
+        st.info("No data to show yet.")
+        return piv
+
     if sort_by_attr and sort_by_attr in piv.columns:
         piv = piv.sort_values(by=sort_by_attr, ascending=False)
+
     z = piv.values
     x = list(piv.columns)
     y = list(piv.index)
-    text = None
-    texttemplate = None
-    if show_values:
-        text = np.round(z, decimals).astype(str)
-        texttemplate = "%{text}"
+    text = np.vectorize(lambda v: f"{v:.{decimals}f}")(z) if show_values else None
+
     fig = px.imshow(
         z, x=x, y=y, zmin=0, zmax=1,
-        color_continuous_scale="RdYlGn",
-        text=text, aspect="auto"
+        text_auto=False,  # we add text via update for better control
+        color_continuous_scale=(BRAND_SEQ if use_brand else "RdYlGn"),
+        aspect="auto"
     )
-    if texttemplate:
-        fig.update_traces(texttemplate=texttemplate)
+    if show_values:
+        fig.update_traces(text=text, texttemplate="%{text}", textfont_size=12)
     fig.update_layout(
-        title=title, xaxis_title="Attribute", yaxis_title="Channel",
-        margin=dict(l=60,r=20,t=60,b=40),
-        coloraxis_colorbar=dict(title="Score")
+        margin=dict(l=60, r=30, t=30, b=60),
+        coloraxis_colorbar=dict(title="Median score", tickformat=".2f")
     )
     st.plotly_chart(fig, use_container_width=True)
+    return piv
 
-def _records_long_for_correlation():
-    """
-    Expand score_records into long format suitable for correlation:
-    columns: Entity, Variant, Channel, Attribute, Score
-    """
-    if "score_records" not in st.session_state or not st.session_state["score_records"]:
-        return pd.DataFrame(columns=["Entity","Variant","Channel","Attribute","Score"])
-    rows = []
-    # Determine attribute keys
-    attrs_code = None
-    for r in st.session_state["score_records"]:
-        if isinstance(r.get("scores"), dict):
-            attrs_code = list(r["scores"].keys())
-            break
-    if not attrs_code:
-        return pd.DataFrame(columns=["Entity","Variant","Channel","Attribute","Score"])
-    for r in st.session_state["score_records"]:
-        ent = r.get("entity","")
-        var = r.get("variant","")
-        ch  = r.get("channel","")
-        sc = r.get("scores",{})
-        for a in attrs_code:
-            try:
-                rows.append({"Entity": ent, "Variant": var, "Channel": ch, "Attribute": a.replace("_"," "), "Score": float(sc[a]["score"])})
-            except Exception:
-                continue
-    return pd.DataFrame(rows)
+def render_correlation(df_long: pd.DataFrame, use_brand: bool=True):
+    corr = _attribute_correlation(df_long)
+    if corr.empty:
+        st.info("Not enough variation to compute correlations (need ≥2 attributes with non-zero variance).")
+        return corr
 
-def render_attribute_correlation_explorer():
-    df_long = _records_long_for_correlation()
-    if df_long.empty or df_long["Score"].count() < 5:
-        st.info("Not enough/valid data for correlation yet.")
-        return
-    wide = df_long.pivot_table(index=["Entity","Variant","Channel"], columns="Attribute", values="Score", aggfunc="mean").reset_index()
-    # Drop non-varying columns
-    num_cols = [c for c in wide.columns if c not in ["Entity","Variant","Channel"]]
-    keep = []
-    for c in num_cols:
-        s = pd.to_numeric(wide[c], errors="coerce")
-        if s.notna().sum() >= 2 and s.var() > 0:
-            keep.append(c)
-    if len(keep) < 2:
-        st.info("Need at least two varying attributes to compute correlations.")
-        return
-    corr = wide[keep].corr(method="pearson").round(3)
-    fig = px.imshow(corr.values, x=keep, y=keep, zmin=-1, zmax=1, color_continuous_scale="RdBu_r", text=corr.values)
-    fig.update_traces(texttemplate="%{text}")
+    fig = px.imshow(
+        corr.values, x=list(corr.columns), y=list(corr.index),
+        zmin=-1, zmax=1, color_continuous_scale=(BRAND_DIVERGING if use_brand else "RdBu_r"),
+        text_auto=True, aspect="auto"
+    )
     fig.update_layout(
-        title="Attribute Correlation Explorer (Pearson)",
-        xaxis_title="Attribute", yaxis_title="Attribute",
-        margin=dict(l=60,r=20,t=60,b=40), coloraxis_colorbar=dict(title="ρ")
+        margin=dict(l=60, r=30, t=30, b=60),
+        coloraxis_colorbar=dict(title="Corr", tickformat=".2f")
     )
     st.plotly_chart(fig, use_container_width=True)
+    return corr
 
+def render_top_pairs(corr: pd.DataFrame, k:int=5):
+    """Show top-k positive and negative attribute pairs from a correlation matrix."""
+    if corr.empty:
+        return
+    pairs = []
+    cols = list(corr.columns)
+    for i in range(len(cols)):
+        for j in range(i+1, len(cols)):
+            pairs.append((cols[i], cols[j], corr.iloc[i, j]))
+    dfp = pd.DataFrame(pairs, columns=["Attribute A", "Attribute B", "Correlation"]).sort_values("Correlation", ascending=False)
+    pos = dfp.head(k).reset_index(drop=True)
+    neg = dfp.tail(k).sort_values("Correlation").reset_index(drop=True)
+
+    st.markdown("#### Strongest positive relationships")
+    st.dataframe(pos.style.format({"Correlation": "{:.2f}"}), use_container_width=True)
+    st.markdown("#### Strongest negative relationships")
+    st.dataframe(neg.style.format({"Correlation": "{:.2f}"}), use_container_width=True)
 
 # ============================
-# Demo Seed + Enhanced Heatmap + Correlation Explorer Sections
+# Page/Section entrypoint (safe to import from a larger app)
 # ============================
-try:
-    _ensure_demo_records()
-except Exception:
-    pass
+def render_section():
+    # 1) Ensure data
+    _seed_demo_records()
 
-st.markdown("## Enhanced Channel × Attribute Heatmap")
-try:
-    col_h1, col_h2, col_h3 = st.columns([1,1,1])
-    with col_h1:
-        _show_vals = st.checkbox("Show values on heatmap", value=True, help="Annotate each cell with its value.")
-    with col_h2:
-        _decimals = st.slider("Round to (decimals)", 0, 3, 2)
-    # determine attribute options from pivot
-    _piv_preview = _get_channel_attribute_pivot()
-    opts = ["(none)"] + (list(_piv_preview.columns) if _piv_preview is not None and not _piv_preview.empty else [])
-    with col_h3:
-        _sort_attr = st.selectbox("Sort channels by attribute (optional)", opts, index=0)
-        _sort_attr = None if _sort_attr == "(none)" else _sort_attr
-    render_attribute_heatmap_enhanced(show_values=_show_vals, decimals=_decimals, sort_by_attr=_sort_attr)
-except Exception as e:
-    st.warning(f"Enhanced heatmap could not be rendered: {e}")
+    # 2) Load and flatten
+    records = st.session_state.get("score_records", [])
+    df = _records_to_long_df(records)
 
-st.markdown("## Attribute Correlation Explorer")
-try:
-    render_attribute_correlation_explorer()
-except Exception as e:
-    st.warning(f"Correlation explorer could not be rendered: {e}")
+    # 3) Filters
+    st.markdown("### Filters")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        ent_sel = st.multiselect("Entities", sorted(df["entity"].dropna().unique().tolist()), default=sorted(df["entity"].dropna().unique().tolist()))
+    with col2:
+        ch_sel  = st.multiselect("Channels", sorted(df["channel"].dropna().unique().tolist()), default=sorted(df["channel"].dropna().unique().tolist()))
+    with col3:
+        var_sel = st.multiselect("Variants", sorted(df["variant"].dropna().unique().tolist()), default=sorted(df["variant"].dropna().unique().tolist()))
 
+    df_filt = df[
+        df["entity"].isin(ent_sel) &
+        df["channel"].isin(ch_sel) &
+        df["variant"].isin(var_sel)
+    ].copy()
+
+    # 4) Options
+    st.markdown("### Display Options")
+    c1, c2, c3, c4 = st.columns([1,1,1,2])
+    with c1:
+        use_brand = st.toggle("Use brand colors", value=True)
+    with c2:
+        show_vals = st.toggle("Show values", value=True)
+    with c3:
+        decimals = st.number_input("Decimals", 0, 4, 2, step=1)
+    with c4:
+        piv_preview = _channel_attribute_medians(df_filt)
+        opts = ["(none)"] + (list(piv_preview.columns) if not piv_preview.empty else [])
+        sba = st.selectbox("Sort channels by attribute", opts, index=0)
+        sort_attr = None if sba == "(none)" else sba
+
+    # 5) Heatmap
+    st.markdown("## Channel × Attribute Heatmap")
+    piv = render_heatmap(df_filt, use_brand=use_brand, show_values=show_vals, decimals=int(decimals), sort_by_attr=sort_attr)
+
+    # Downloads (heatmap data)
+    if not piv.empty:
+        st.download_button(
+            "Download heatmap data (CSV)",
+            data=piv.reset_index().to_csv(index=False).encode("utf-8"),
+            file_name="channel_attribute_medians.csv",
+            mime="text/csv"
+        )
+
+    # 6) Correlation explorer
+    st.markdown("## Attribute Correlation Explorer")
+    corr = render_correlation(df_filt, use_brand=use_brand)
+
+    # Downloads (correlation)
+    if not corr.empty:
+        st.download_button(
+            "Download correlation matrix (CSV)",
+            data=corr.reset_index().rename(columns={"index":"attribute"}).to_csv(index=False).encode("utf-8"),
+            file_name="attribute_correlation.csv",
+            mime="text/csv"
+        )
+        render_top_pairs(corr, k=5)
+
+# If this file is executed directly via `streamlit run`, render the section on an empty page.
+def _main():
+    st.set_page_config(page_title="Heatmaps & Correlations", layout="wide")
+    st.title("The Marketing Scientist · Heatmaps & Correlations")
+    render_section()
+
+if __name__ == "__main__":
+    _main()

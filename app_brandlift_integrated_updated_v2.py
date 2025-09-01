@@ -498,7 +498,7 @@ def _attribute_correlation(df_long: pd.DataFrame) -> pd.DataFrame:
 
 def render_correlation_section():
     st.subheader("Attribute Correlation Explorer")
-            return
+    return
 
     fig = px.imshow(
         corr.values, x=list(corr.columns), y=list(corr.index),

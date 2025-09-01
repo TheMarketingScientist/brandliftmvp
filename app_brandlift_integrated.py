@@ -133,7 +133,14 @@ def _extract_json_substring(text: str) -> str | None:
 def _parse_json_block(text: str) -> dict:
     if not isinstance(text, str):
         raise RuntimeError("Model did not return text content.")
-    text = text.replace('\\u201c', '\"').replace('\\u201d', '\"').replace('“','\"').replace('”','\"').replace('’',\"'\").replace('‘',\"'\")
+    text = (
+        text.replace("\\u201c", '"')
+            .replace("\\u201d", '"')
+            .replace("“", '"')
+            .replace("”", '"')
+            .replace("’", "'")
+            .replace("‘", "'")
+    )
     candidate = _extract_json_substring(text)
     if candidate is None:
         raise RuntimeError("Model did not return JSON. Output was: " + text[:400])

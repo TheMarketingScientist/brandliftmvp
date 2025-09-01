@@ -609,7 +609,7 @@ with c3:
 
 
 # --- Desired Attribute Targets (sliders) ---
-with st.expander("🎯 Desired attribute targets", expanded=True):
+with st.expander("Desired attribute targets", expanded=True):
     desired_targets = {}
     cols = st.columns(3)
     for i, a in enumerate(ATTRS):
@@ -754,7 +754,7 @@ if improved_scores and comp_scores:
                 <div style="font-weight:700; color:{BRAND_NAVY}; margin-bottom:0.5rem;">
                     Competitive Gap Analysis (vs Improved Copy)
                 </div>
-                {''.join([f"<div>⚠️ Still lagging in <b>{attr}</b> by {delta:+.2f}</div>" for attr, delta in lagging])}
+                {''.join([f"<div>Still lagging in <b>{attr}</b> by {delta:+.2f}</div>" for attr, delta in lagging])}
             </div>
             """, unsafe_allow_html=True)
 

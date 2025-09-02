@@ -447,7 +447,11 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     z = fig_df.drop(columns=["Channel"]).values
     x = list(fig_df.columns[1:])
     y = list(fig_df["Channel"])
-    hm = go.Figure(data=go.Heatmap(colorscale=BRAND_SEQ,
+    hm = go.Figure(data=go.Heatmap(colorscale=[
+        [-1.0, 'rgb(128,0,128)'],  # purple
+        [ 0.0, 'rgb(255,255,255)'],  # white
+        [ 1.0, 'rgb(0,0,128)']   # navy
+    ],
         z=z, x=x, y=y, zmin=0.0, zmax=1.0,
         colorbar=dict(title="Median Score"),
         hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"

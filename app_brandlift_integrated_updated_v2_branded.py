@@ -572,13 +572,6 @@ st.markdown('''
     <span class="badge" style="background:#2E3C71">Trust</span>
 </div>
 ''', unsafe_allow_html=True)
-}</span>',
-     f'<span class="badge" style="background:{BRAND_BLUE}">{_pretty_attr("Ease_of_Use")}</span>',
-     f'<span class="badge" style="background:{BRAND_PURPLE}">{_pretty_attr("Quality")}</span>',
-     f'<span class="badge" style="background:{BRAND_PURPLE}">{_pretty_attr("Luxury")}</span>',
-     f'<span class="badge" style="background:{BRAND_NAVY}">{_pretty_attr("Cost_Benefit")}</span>',
-     f'<span class="badge" style="background:{COMP_TEAL}">{_pretty_attr("Trust")}</span>']
-) + "</div>", unsafe_allow_html=True)
 
 text = st.text_area("Paste ad copy or transcript:", height=160,
     placeholder="Example: Introducing the next-generation sedan—hand-finished interiors, seamless app control, and advanced safety.")

@@ -380,14 +380,16 @@ def delta_table(base: dict, improved: dict) -> pd.DataFrame:
 
 def inject_css():
     
-st.markdown('<div class="badges">' +
-    '<span class="badge" style="background:#445DA7">Leadership</span>' +
-    '<span class="badge" style="background:#6B3894">Ease of Use</span>' +
-    '<span class="badge" style="background:#2E3C71">Quality</span>' +
-    '<span class="badge" style="background:#6B3894">Luxury</span>' +
-    '<span class="badge" style="background:#445DA7">Cost/Benefit</span>' +
-    '<span class="badge" style="background:#2E3C71">Trust</span>' +
-    "</div>", unsafe_allow_html=True)
+st.markdown('''
+<div class="badges">
+    <span class="badge" style="background:#445DA7">Leadership</span>
+    <span class="badge" style="background:#6B3894">Ease of Use</span>
+    <span class="badge" style="background:#2E3C71">Quality</span>
+    <span class="badge" style="background:#6B3894">Luxury</span>
+    <span class="badge" style="background:#445DA7">Cost/Benefit</span>
+    <span class="badge" style="background:#2E3C71">Trust</span>
+</div>
+''', unsafe_allow_html=True)
 
 
 # ------- Score record utilities (for Heatmap) -------
@@ -560,14 +562,16 @@ if not api_key:
 
 st.markdown("**Attributes**")
 
-st.markdown('<div class="badges">' +
-    '<span class="badge" style="background:#445DA7">Leadership</span>' +
-    '<span class="badge" style="background:#6B3894">Ease of Use</span>' +
-    '<span class="badge" style="background:#2E3C71">Quality</span>' +
-    '<span class="badge" style="background:#6B3894">Luxury</span>' +
-    '<span class="badge" style="background:#445DA7">Cost/Benefit</span>' +
-    '<span class="badge" style="background:#2E3C71">Trust</span>' +
-    "</div>", unsafe_allow_html=True)
+st.markdown('''
+<div class="badges">
+    <span class="badge" style="background:#445DA7">Leadership</span>
+    <span class="badge" style="background:#6B3894">Ease of Use</span>
+    <span class="badge" style="background:#2E3C71">Quality</span>
+    <span class="badge" style="background:#6B3894">Luxury</span>
+    <span class="badge" style="background:#445DA7">Cost/Benefit</span>
+    <span class="badge" style="background:#2E3C71">Trust</span>
+</div>
+''', unsafe_allow_html=True)
 }</span>',
      f'<span class="badge" style="background:{BRAND_BLUE}">{_pretty_attr("Ease_of_Use")}</span>',
      f'<span class="badge" style="background:{BRAND_PURPLE}">{_pretty_attr("Quality")}</span>',

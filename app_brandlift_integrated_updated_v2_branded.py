@@ -379,33 +379,16 @@ def delta_table(base: dict, improved: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def inject_css():
-    st.markdown(f"""
-    <style>
-    .stButton > button {{
-        background-color: {BRAND_BLUE};
-        color: white; border: none; border-radius: 8px;
-        padding: 0.5rem 1rem; font-weight: 600;
-    }}
-    .stButton > button:hover {{ background-color: {BRAND_PURPLE}; color: white; }}
-    .badge {{
-        display:inline-block; padding: 0.2rem 0.6rem; border-radius: 999px;
-        color: white; font-size: 0.85rem; margin-right: 0.35rem; margin-bottom: 0.35rem;
-    }}
-    .badges {{ margin: 0.25rem 0 0.75rem 0; }}
-    .block-container {{ padding-top: 1rem; }}
-    .app-title {{ color: {TITLE_COLOR}; margin: 0; }}
-    .warn-box {{
-        background: #FFF4CC; border: 1px solid #E2C268; border-radius: 8px;
-        padding: 0.6rem; margin-top: 0.5rem; margin-bottom: 0.5rem;
-    }}
-    .warn-title {{ font-weight: 700; color: {BRAND_NAVY}; margin-bottom: 0.25rem; }}
-    .pill-warn {{
-        display:inline-block; padding: 0.2rem 0.5rem; border-radius: 999px;
-        background: white; border: 1px solid #E2C268; color: {BRAND_NAVY};
-        font-size: 0.85rem; margin-right: 0.35rem; margin-bottom: 0.35rem;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
+    
+st.markdown('<div class="badges">' +
+    '<span class="badge" style="background:#445DA7">Leadership</span>' +
+    '<span class="badge" style="background:#6B3894">Ease of Use</span>' +
+    '<span class="badge" style="background:#2E3C71">Quality</span>' +
+    '<span class="badge" style="background:#6B3894">Luxury</span>' +
+    '<span class="badge" style="background:#445DA7">Cost/Benefit</span>' +
+    '<span class="badge" style="background:#2E3C71">Trust</span>' +
+    "</div>", unsafe_allow_html=True)
+
 
 # ------- Score record utilities (for Heatmap) -------
 def _init_records():
@@ -576,8 +559,16 @@ if not api_key:
     st.info('Add your key in Settings → Secrets as:\\nANTHROPIC_API_KEY = "sk-ant-..."')
 
 st.markdown("**Attributes**")
-st.markdown('<div class="badges">' + " ".join(
-    [f'<span class="badge" style="background:{BRAND_NAVY}">{_pretty_attr("Leadership")}</span>',
+
+st.markdown('<div class="badges">' +
+    '<span class="badge" style="background:#445DA7">Leadership</span>' +
+    '<span class="badge" style="background:#6B3894">Ease of Use</span>' +
+    '<span class="badge" style="background:#2E3C71">Quality</span>' +
+    '<span class="badge" style="background:#6B3894">Luxury</span>' +
+    '<span class="badge" style="background:#445DA7">Cost/Benefit</span>' +
+    '<span class="badge" style="background:#2E3C71">Trust</span>' +
+    "</div>", unsafe_allow_html=True)
+}</span>',
      f'<span class="badge" style="background:{BRAND_BLUE}">{_pretty_attr("Ease_of_Use")}</span>',
      f'<span class="badge" style="background:{BRAND_PURPLE}">{_pretty_attr("Quality")}</span>',
      f'<span class="badge" style="background:{BRAND_PURPLE}">{_pretty_attr("Luxury")}</span>',

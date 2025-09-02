@@ -449,8 +449,8 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     y = list(fig_df["Channel"])
     hm = go.Figure(data=go.Heatmap(
         colorscale=[
-            [0.0, 'rgb(128,0,128)'],  # purple (low)
-            [0.5, 'rgb(255,255,255)'],# white (mid)
+            [0.0, 'rgb(255,255,255)'],  # purple (low)
+            [0.3, 'rgb(128,0,128)'],# white (mid)
             [1.0, 'rgb(0,0,128)']     # navy (high)
         ],
         z=z, x=x, y=y, zmin=0.0, zmax=1.0,
@@ -460,7 +460,6 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
     st.plotly_chart(hm, use_container_width=True)
     st.dataframe(fig_df, use_container_width=True)
-
 
 # ------------- Correlation Explorer (integrated) -------------
 def _records_to_long_df(records: list[dict]) -> pd.DataFrame:

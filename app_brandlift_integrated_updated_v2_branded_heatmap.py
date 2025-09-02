@@ -447,15 +447,20 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     z = fig_df.drop(columns=["Channel"]).values
     x = list(fig_df.columns[1:])
     y = list(fig_df["Channel"])
-    hm = go.Figure(data=go.Heatmap(colorscale=colorscale=[[-1.0, 'rgb(128,0,128)'], [ 0.0, 'rgb(255,255,255)'], [ 1.0, 'rgb(0,0,128)'] ]
-,
-        z=z, x=x, y=y, zmin=0.0, zmax=1.0,
+    hm = go.Figure(data=go.Heatmap(
+        colorscale=[
+            [-1.0, 'rgb(128,0,128)'],  # purple
+            [ 0.0, 'rgb(255,255,255)'],  # white
+            [ 1.0, 'rgb(0,0,128)']   # navy
+        ],
+        z=z, x=x, y=y, zmin=-1.0, zmax=1.0,
         colorbar=dict(title="Median Score"),
         hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"
     ))
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
     st.plotly_chart(hm, use_container_width=True)
     st.dataframe(fig_df, use_container_width=True)
+
 
 # ------------- Correlation Explorer (integrated) -------------
 def _records_to_long_df(records: list[dict]) -> pd.DataFrame:

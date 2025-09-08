@@ -99,7 +99,7 @@ def _render_login_password() -> bool:
         logo_url = st.text_input("Company logo URL (optional PNG/JPG/SVG)", value=st.session_state.get("company_logo_url",""))
         colA, colB = st.columns([1,1])
         with colA:
-            login_click = st.button("Sign in", use_container_width=True)
+            login_click = st.button("Sign in", width='stretch')
         with colB:
             st.write("")
 
@@ -405,6 +405,21 @@ Return only the improved text (no explanations, no JSON, no tags)."""
 
     rewrite, _ = _with_fallback(run, api_key, user_content)
     return rewrite or cleaned
+
+
+
+def _with_fallback(func, *args, **kwargs):
+    """
+    Try preferred model; if it fails with common not-found/403/404 errors,
+    retry with fallback model. Returns (result, used_model).
+    """
+    try:
+        return func(PREFERRED_MODEL, *args, **kwargs), PREFERRED_MODEL
+    except RuntimeError as e:
+        s = str(e)
+        if ("HTTP 403" in s) or ("HTTP 404" in s) or ("not_found" in s) or ("model not found" in s):
+            return func(FALLBACK_MODEL, *args, **kwargs), FALLBACK_MODEL
+        raise
 
 
 def score_text(api_key: str, text: str) -> dict:
@@ -751,9 +766,9 @@ def render_correlation_section():
     neg = dfp.tail(5).sort_values("Correlation").reset_index(drop=True)
 
     st.markdown("#### Strongest positive relationships")
-    st.dataframe(pos.style.format({"Correlation": "{:.2f}"}), use_container_width=True)
+    st.dataframe(pos.style.format({"Correlation": "{:.2f}"}), width='stretch')
     st.markdown("#### Strongest negative relationships")
-    st.dataframe(neg.style.format({"Correlation": "{:.2f}"}), use_container_width=True)
+    st.dataframe(neg.style.format({"Correlation": "{:.2f}"}), width='stretch')
 
     # Downloads
     st.download_button(
@@ -787,14 +802,14 @@ with hdr_right:
     else:
         logo_path = Path("logo.png")
         if logo_path.exists():
-            st.image(str(logo_path), use_container_width=True)
+            st.image(str(logo_path), width='stretch')
 
 # Sidebar account controls
 st.sidebar.markdown("### Account")
 st.sidebar.caption(f"User: **{st.session_state.get('auth_user', '—')}**")
 if st.sidebar.button("Log out"):
     _auth_reset()
-    st.rerun()
+    st.experimental_rerun()
 
 
 api_key = st.secrets.get("ANTHROPIC_API_KEY", "").strip()
@@ -819,7 +834,7 @@ client_channel = st.selectbox("Client channel", CHANNELS, index=0)
 
 c1, c2, c3 = st.columns([1,1,2])
 with c1:
-    score_clicked = st.button("Score", use_container_width=True)
+    score_clicked = st.button("Score", width='stretch')
 # REMOVED the multiselect & inline Improve button from c2 as requested
 with c2:
     pass
@@ -831,7 +846,7 @@ with c3:
         comp_url = st.text_input("Competitor ad/creative URL (optional)", placeholder="https://...")
     comp_text = st.text_area("Competitor copy/transcript (optional)", height=120, placeholder="Paste competitor copy/transcript to score (optional)")
     comp_channel = st.selectbox("Competitor channel", CHANNELS, index=0)
-    score_comp = st.button("Score Competitor", use_container_width=True)
+    score_comp = st.button("Score Competitor", width='stretch')
 
 
 # --- Desired Attribute Targets (sliders) ---
@@ -846,7 +861,7 @@ with st.expander("Desired attribute targets", expanded=True):
     st.caption("These targets drive the improvement step. The rewrite will **avoid explicit attribute tags** and aim for these levels in tone and content.")
 
 # MOVE the Improve button right below the sliders
-improve_clicked = st.button("Improve & Rescore", use_container_width=True)
+improve_clicked = st.button("Improve & Rescore", width='stretch')
 
 
 if score_clicked:
@@ -935,16 +950,16 @@ if base_scores or improved_scores or comp_scores:
                 except Exception:
                     pass
             st.session_state["client_channel"] = client_channel
-            st.plotly_chart(radar(base_scores, "Original Scores", "rgba(68, 93, 167, 0.45)", "rgba(68, 93, 167, 1.0)"), use_container_width=True)
-            st.dataframe(scores_table(base_scores), use_container_width=True)
+            st.plotly_chart(radar(base_scores, "Original Scores", "rgba(68, 93, 167, 0.45)", "rgba(68, 93, 167, 1.0)"), width='stretch')
+            st.dataframe(scores_table(base_scores), width='stretch')
         idx += 1
 
     if improved_scores:
         with cols[idx]:
             st.markdown("**Improved Copy**")
             st.write(st.session_state.get("improved_text",""))
-            st.plotly_chart(radar(improved_scores, "Improved Scores", "rgba(107, 56, 148, 0.45)", "rgba(107, 56, 148, 1.0)"), use_container_width=True)
-            st.dataframe(scores_table(improved_scores), use_container_width=True)
+            st.plotly_chart(radar(improved_scores, "Improved Scores", "rgba(107, 56, 148, 0.45)", "rgba(107, 56, 148, 1.0)"), width='stretch')
+            st.dataframe(scores_table(improved_scores), width='stretch')
         idx += 1
 
     if comp_scores:
@@ -960,8 +975,8 @@ if base_scores or improved_scores or comp_scores:
                         st.video(comp_link)
                 except Exception:
                     pass
-            st.plotly_chart(radar(comp_scores, f"{comp_label} Scores", "rgba(42, 169, 161, 0.45)", "rgba(42, 169, 161, 1.0)"), use_container_width=True)
-            st.dataframe(scores_table(comp_scores), use_container_width=True)
+            st.plotly_chart(radar(comp_scores, f"{comp_label} Scores", "rgba(42, 169, 161, 0.45)", "rgba(42, 169, 161, 1.0)"), width='stretch')
+            st.dataframe(scores_table(comp_scores), width='stretch')
 
 
 if improved_scores and comp_scores:
@@ -986,7 +1001,7 @@ if improved_scores and comp_scores:
             </div>
             """, unsafe_allow_html=True)
 
-        if st.button("Improve again to close competitive gaps", use_container_width=True):
+        if st.button("Improve again to close competitive gaps", width='stretch'):
             # Start from the improved text
             source_text = st.session_state.get("improved_text") or st.session_state.get("base_text","")
             if source_text:
@@ -1048,126 +1063,68 @@ _heatmap(heatmap_df, title="Attribute Importance Heatmap (Median by Channel)")
 st.subheader("Channel Trends Over Time")
 st.caption("Channel attribute trends over time. For non-demo users, shows only actual scores over time.")
 
+
 def _seed_demo_trends():
-    """Seed 12‑month synthetic trends ONLY for the test user (preload_demo=True)."""
+    """Seed 12-month synthetic time series ONLY for the test user (preload_demo=True)."""
     if not st.session_state.get('preload_demo'):
         return
-"""Create 12-month synthetic time series per (Entity, Variant, Channel, Attribute) using random walks."""
+    # If already seeded and looks valid, don't reseed
     if "monthly_attr_trends" in st.session_state:
         df = st.session_state["monthly_attr_trends"]
         if isinstance(df, pd.DataFrame) and set(["Entity","Variant"]).issubset(df.columns):
             return
         else:
             # Bad/missing schema -> reset
-            if "monthly_attr_trends" in st.session_state:
-                del st.session_state["monthly_attr_trends"]
+            del st.session_state["monthly_attr_trends"]
 
     _init_records()
-    # Only seed demo if the test-user preload is active
-    if not st.session_state["score_records"] and not st.session_state.get('preload_demo'):
-        return
     if not st.session_state["score_records"] and st.session_state.get('preload_demo'):
-        _seed_full_demo_heatmap()
+        months = pd.date_range(
+            end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
+            periods=12,
+            freq="M",
+        ).strftime("%Y-%m")
+        entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
+        variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
 
-    months = pd.date_range(
-        end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
-        periods=12,
-        freq="M",
-    ).strftime("%Y-%m")
-    entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
-    variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
+        def random_walk_series(seed: int, start: float) -> list[float]:
+            import random as _rnd
+            _rnd.seed(seed)
+            vals = [max(0.0, min(1.0, start))]
+            sigma = 0.16
+            for _ in range(1, 12):
+                step = _rnd.gauss(0.0, sigma)
+                nxt = vals[-1] + step
+                if nxt < 0.0: nxt = -nxt
+                if nxt > 1.0: nxt = 2.0 - nxt
+                vals.append(max(0.0, min(1.0, nxt)))
+            vmin, vmax = min(vals), max(vals)
+            span = vmax - vmin
+            if span < 0.65:
+                mean = sum(vals) / len(vals)
+                expand = (0.80 / max(span, 1e-6))
+                vals = [max(0.0, min(1.0, mean + (v-mean)*expand)) for v in vals]
+            return [round(v, 3) for v in vals]
 
-    def random_walk_series(seed: int, start: float) -> list[float]:
-        import random as _rnd
-        _rnd.seed(seed)
-        vals = [max(0.0, min(1.0, start))]
-        sigma = 0.16
-        for _ in range(1, 12):
-            step = _rnd.gauss(0.0, sigma)
-            nxt = vals[-1] + step
-            if nxt < 0.0: nxt = -nxt
-            if nxt > 1.0: nxt = 2.0 - nxt
-            vals.append(max(0.0, min(1.0, nxt)))
-        vmin, vmax = min(vals), max(vals)
-        span = vmax - vmin
-        if span < 0.65:
-            mean = sum(vals) / len(vals)
-            expand = (0.80 / max(span, 1e-6))
-            vals = [mean + (v - mean) * expand for v in vals]
-            vals = [min(1.0, max(0.0, (2.0 - v) if v > 1.0 else (-v if v < 0.0 else v))) for v in vals]
-        vmin, vmax = min(vals), max(vals)
-        if vmax < 0.92:
-            add = 0.92 - vmax
-            vals = [min(1.0, v + add * 0.6) for v in vals]
-        if vmin > 0.08:
-            sub = vmin - 0.08
-            vals = [max(0.0, v - sub * 0.6) for v in vals]
-        return [round(v, 3) for v in vals]
+        rows = []
+        for ent in entities:
+            for var in variants:
+                for ch in CHANNELS:
+                    for attr in ATTRS:
+                        seed_val = abs(hash(f"rw:{ent}:{var}:{ch}:{attr}")) % (2**32)
+                        start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
+                        series = random_walk_series(seed_val, start)
+                        for mth, v in zip(months, series):
+                            rows.append({
+                                "Entity": ent,
+                                "Variant": var,
+                                "Channel": ch,
+                                "Month": mth,
+                                "Attribute": _pretty_attr(attr),
+                                "Score": v,
+                            })
+        st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
 
-    rows = []
-    for ent in entities:
-        for var in variants:
-            for ch in CHANNELS:
-                for attr in ATTRS:
-                    seed_val = abs(hash(f"rw:{ent}:{var}:{ch}:{attr}")) % (2**32)
-                    start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
-                    series = random_walk_series(seed_val, start)
-                    for m, v in zip(months, series):
-                        rows.append({
-                            "Entity": ent,
-                            "Variant": var,
-                            "Channel": ch,
-                            "Month": m,
-                            "Attribute": _pretty_attr(attr),
-                            "Score": v,
-                        })
-    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
-
-
-def _plot_channel_trends(df_channel: pd.DataFrame):
-    fig = go.Figure()
-    for attr in sorted(df_channel["Attribute"].unique()):
-        sdf = df_channel[df_channel["Attribute"] == attr].sort_values("Month")
-        fig.add_trace(go.Scatter(
-            x=sdf["Month"],
-            y=sdf["Score"],
-            mode="lines+markers",
-            name=attr
-        ))
-    fig.update_layout(
-        title="Attribute trends (12 months)",
-        xaxis_title="Month",
-        yaxis_title="Score",
-        yaxis=dict(range=[0, 1]),
-        margin=dict(l=40, r=20, t=60, b=40),
-        legend_title="Attribute"
-    )
-    st.plotly_chart(fig, width='stretch')
-    wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
-    st.dataframe(wide, width='stretch')
-
-_seed_demo_trends()
-
-trend_df = st.session_state.get("monthly_attr_trends")
-can_plot_trends = isinstance(trend_df, pd.DataFrame) and not trend_df.empty
-
-trend_channel = st.selectbox("Select channel", CHANNELS, index=0, key="trend_channel")
-
-if can_plot_trends:
-    try:
-        ef = set(sel_entities) if 'sel_entities' in locals() and sel_entities else set(sorted(trend_df["Entity"].unique()))
-        vf = set(sel_variants) if 'sel_variants' in locals() and sel_variants else set(sorted(trend_df["Variant"].unique()))
-        filtered = trend_df[(trend_df["Entity"].isin(ef)) & (trend_df["Variant"].isin(vf)) & (trend_df["Channel"] == trend_channel)]
-    except Exception:
-        filtered = trend_df[trend_df["Channel"] == trend_channel]
-
-    if not filtered.empty:
-        agg = (filtered.groupby(["Month", "Attribute"], as_index=False)["Score"].median())
-        _plot_channel_trends(agg)
-    else:
-        st.info("No trend data for the selected channel/filters yet.")
-else:
-    st.info("No trend data yet. Score items or use the test user to see demo trends.")
 
 # ---------------- Attribute Correlation Explorer ----------------
 render_correlation_section()

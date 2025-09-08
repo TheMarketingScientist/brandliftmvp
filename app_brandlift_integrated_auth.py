@@ -41,7 +41,7 @@ def _brand_login_header():
     logo_url = st.secrets.get("COMPANY_LOGO_URL", "").strip()
     st.markdown(f"""
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-            {'<img src="'+logo_url+'" style="height: 85px; width: auto;">' if logo_url else ''}
+            {'<img src="'+logo_url+'" style="height: 130px; width: auto;">' if logo_url else ''}
             <h1 style="margin:0; color:{TITLE_COLOR};">Brand Lift</h1>
         </div>
     """, unsafe_allow_html=True)

@@ -42,7 +42,7 @@ def _brand_login_header():
     st.markdown(f"""
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
             {'<img src="'+logo_url+'" style="height:42px;">' if logo_url else ''}
-            <h2 style="margin:0; color:{TITLE_COLOR};">The Marketing Scientist — Brand Lift</h2>
+            <h3 style="margin:0; color:{TITLE_COLOR};">The Marketing Scientist — Brand Lift</h3>
         </div>
     """, unsafe_allow_html=True)
     st.caption("Secure access — please sign in to continue.")

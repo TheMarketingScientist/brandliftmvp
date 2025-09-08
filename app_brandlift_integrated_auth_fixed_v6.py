@@ -1063,68 +1063,123 @@ _heatmap(heatmap_df, title="Attribute Importance Heatmap (Median by Channel)")
 st.subheader("Channel Trends Over Time")
 st.caption("Channel attribute trends over time. For non-demo users, shows only actual scores over time.")
 
-
 def _seed_demo_trends():
-    """Seed 12-month synthetic time series ONLY for the test user (preload_demo=True)."""
-    if not st.session_state.get('preload_demo'):
-        return
-    # If already seeded and looks valid, don't reseed
+    """Create 12-month synthetic time series per (Entity, Variant, Channel, Attribute) using random walks."""
     if "monthly_attr_trends" in st.session_state:
         df = st.session_state["monthly_attr_trends"]
         if isinstance(df, pd.DataFrame) and set(["Entity","Variant"]).issubset(df.columns):
             return
         else:
             # Bad/missing schema -> reset
-            del st.session_state["monthly_attr_trends"]
+            if "monthly_attr_trends" in st.session_state:
+                del st.session_state["monthly_attr_trends"]
 
     _init_records()
+    # Only seed demo if the test-user preload is active
+    if not st.session_state["score_records"] and not st.session_state.get('preload_demo'):
+        return
     if not st.session_state["score_records"] and st.session_state.get('preload_demo'):
-        months = pd.date_range(
-            end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
-            periods=12,
-            freq="M",
-        ).strftime("%Y-%m")
-        entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
-        variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
+        _seed_full_demo_heatmap()
 
-        def random_walk_series(seed: int, start: float) -> list[float]:
-            import random as _rnd
-            _rnd.seed(seed)
-            vals = [max(0.0, min(1.0, start))]
-            sigma = 0.16
-            for _ in range(1, 12):
-                step = _rnd.gauss(0.0, sigma)
-                nxt = vals[-1] + step
-                if nxt < 0.0: nxt = -nxt
-                if nxt > 1.0: nxt = 2.0 - nxt
-                vals.append(max(0.0, min(1.0, nxt)))
-            vmin, vmax = min(vals), max(vals)
-            span = vmax - vmin
-            if span < 0.65:
-                mean = sum(vals) / len(vals)
-                expand = (0.80 / max(span, 1e-6))
-                vals = [max(0.0, min(1.0, mean + (v-mean)*expand)) for v in vals]
-            return [round(v, 3) for v in vals]
+    months = pd.date_range(
+        end=pd.Timestamp.today().normalize() + pd.offsets.MonthEnd(0),
+        periods=12,
+        freq="M",
+    ).strftime("%Y-%m")
+    entities = sorted({r["entity"] for r in st.session_state["score_records"]} | {"Client"})
+    variants = sorted({r["variant"] for r in st.session_state["score_records"]} | {"Original","Improved","Competitor"})
 
-        rows = []
-        for ent in entities:
-            for var in variants:
-                for ch in CHANNELS:
-                    for attr in ATTRS:
-                        seed_val = abs(hash(f"rw:{ent}:{var}:{ch}:{attr}")) % (2**32)
-                        start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
-                        series = random_walk_series(seed_val, start)
-                        for mth, v in zip(months, series):
-                            rows.append({
-                                "Entity": ent,
-                                "Variant": var,
-                                "Channel": ch,
-                                "Month": mth,
-                                "Attribute": _pretty_attr(attr),
-                                "Score": v,
-                            })
-        st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
+    def random_walk_series(seed: int, start: float) -> list[float]:
+        import random as _rnd
+        _rnd.seed(seed)
+        vals = [max(0.0, min(1.0, start))]
+        sigma = 0.16
+        for _ in range(1, 12):
+            step = _rnd.gauss(0.0, sigma)
+            nxt = vals[-1] + step
+            if nxt < 0.0: nxt = -nxt
+            if nxt > 1.0: nxt = 2.0 - nxt
+            vals.append(max(0.0, min(1.0, nxt)))
+        vmin, vmax = min(vals), max(vals)
+        span = vmax - vmin
+        if span < 0.65:
+            mean = sum(vals) / len(vals)
+            expand = (0.80 / max(span, 1e-6))
+            vals = [mean + (v - mean) * expand for v in vals]
+            vals = [min(1.0, max(0.0, (2.0 - v) if v > 1.0 else (-v if v < 0.0 else v))) for v in vals]
+        vmin, vmax = min(vals), max(vals)
+        if vmax < 0.92:
+            add = 0.92 - vmax
+            vals = [min(1.0, v + add * 0.6) for v in vals]
+        if vmin > 0.08:
+            sub = vmin - 0.08
+            vals = [max(0.0, v - sub * 0.6) for v in vals]
+        return [round(v, 3) for v in vals]
 
+    rows = []
+    for ent in entities:
+        for var in variants:
+            for ch in CHANNELS:
+                for attr in ATTRS:
+                    seed_val = abs(hash(f"rw:{ent}:{var}:{ch}:{attr}")) % (2**32)
+                    start = 0.05 + (seed_val % 9000) / 9000.0 * 0.90
+                    series = random_walk_series(seed_val, start)
+                    for m, v in zip(months, series):
+                        rows.append({
+                            "Entity": ent,
+                            "Variant": var,
+                            "Channel": ch,
+                            "Month": m,
+                            "Attribute": _pretty_attr(attr),
+                            "Score": v,
+                        })
+    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
+
+
+def _plot_channel_trends(df_channel: pd.DataFrame):
+    fig = go.Figure()
+    for attr in sorted(df_channel["Attribute"].unique()):
+        sdf = df_channel[df_channel["Attribute"] == attr].sort_values("Month")
+        fig.add_trace(go.Scatter(
+            x=sdf["Month"],
+            y=sdf["Score"],
+            mode="lines+markers",
+            name=attr
+        ))
+    fig.update_layout(
+        title="Attribute trends (12 months)",
+        xaxis_title="Month",
+        yaxis_title="Score",
+        yaxis=dict(range=[0, 1]),
+        margin=dict(l=40, r=20, t=60, b=40),
+        legend_title="Attribute"
+    )
+    st.plotly_chart(fig, width='stretch')
+    wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
+    st.dataframe(wide, width='stretch')
+
+_seed_demo_trends()
+
+trend_df = st.session_state.get("monthly_attr_trends")
+can_plot_trends = isinstance(trend_df, pd.DataFrame) and not trend_df.empty
+
+trend_channel = st.selectbox("Select channel", CHANNELS, index=0, key="trend_channel")
+
+if can_plot_trends:
+    try:
+        ef = set(sel_entities) if 'sel_entities' in locals() and sel_entities else set(sorted(trend_df["Entity"].unique()))
+        vf = set(sel_variants) if 'sel_variants' in locals() and sel_variants else set(sorted(trend_df["Variant"].unique()))
+        filtered = trend_df[(trend_df["Entity"].isin(ef)) & (trend_df["Variant"].isin(vf)) & (trend_df["Channel"] == trend_channel)]
+    except Exception:
+        filtered = trend_df[trend_df["Channel"] == trend_channel]
+
+    if not filtered.empty:
+        agg = (filtered.groupby(["Month", "Attribute"], as_index=False)["Score"].median())
+        _plot_channel_trends(agg)
+    else:
+        st.info("No trend data for the selected channel/filters yet.")
+else:
+    st.info("No trend data yet. Score items or use the test user to see demo trends.")
 
 # ---------------- Attribute Correlation Explorer ----------------
 render_correlation_section()

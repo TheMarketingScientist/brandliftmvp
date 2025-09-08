@@ -576,18 +576,33 @@ def _upsert_record(entity: str, channel: str, variant: str, scores: dict):
     else:
         st.session_state["score_records"].append({"entity": entity, "channel": channel, "variant": variant, "scores": scores})
 
-def _records_to_channel_attr_medians(entities: list[str] | None = None, variants: list[str] | None = None) -> pd.DataFrame:
+def _records_to_channel_attr_medians(
+    entities: list[str] | None = None,
+    variants: list[str] | None = None
+) -> pd.DataFrame:
     _init_records()
     rows = []
     for r in st.session_state["score_records"]:
-        if entities and r["entity"] not in entities: continue
-        if variants and r["variant"] not in variants: continue
+        if entities and r["entity"] not in entities:
+            continue
+        if variants and r["variant"] not in variants:
+            continue
         channel = r["channel"]
         sc = r["scores"]
         for attr in ATTRS:
-            rows.append({"Channel": channel, "Attribute": _pretty_attr(attr), "Score": float(sc[attr]["score"])})
+            rows.append({
+                "Channel": channel,
+                "Attribute": _pretty_attr(attr),
+                "Score": float(sc[attr]["score"])
+            })
+
     if not rows:
-        return
+        return pd.DataFrame(columns=["Channel"] + [_pretty_attr(a) for a in ATTRS])
+
+    df = pd.DataFrame(rows)
+    med = df.groupby(["Channel", "Attribute"], as_index=False)["Score"].median()
+    pivot = med.pivot(index="Channel", columns="Attribute", values="Score").reset_index()
+    return pivot
 
 
 def _append_trend_rows(entity: str, channel: str, variant: str, scores: dict):
@@ -613,16 +628,13 @@ def _append_trend_rows(entity: str, channel: str, variant: str, scores: dict):
         })
     df_new = pd.DataFrame(rows)
     if "monthly_attr_trends" in st.session_state and isinstance(st.session_state["monthly_attr_trends"], pd.DataFrame):
-        st.session_state["monthly_attr_trends"] = pd.concat([st.session_state["monthly_attr_trends"], df_new], ignore_index=True)
+        st.session_state["monthly_attr_trends"] = pd.concat(
+            [st.session_state["monthly_attr_trends"], df_new],
+            ignore_index=True
+        )
     else:
         st.session_state["monthly_attr_trends"] = df_new
 
- pd.DataFrame(columns=["Channel"] + [_pretty_attr(a) for a in ATTRS])
-    df = pd.DataFrame(rows)
-    med = df.groupby(["Channel", "Attribute"], as_index=False)["Score"].median()
-    pivot = med.pivot(index="Channel", columns="Attribute", values="Score").reindex(CHANNELS, fill_value=None)
-    pivot = pivot[[_pretty_attr(a) for a in ATTRS]]
-    return pivot.reset_index()
 
 def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     if fig_df.empty or len(fig_df.columns) <= 1:
@@ -633,9 +645,9 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
     y = list(fig_df["Channel"])
     hm = go.Figure(data=go.Heatmap(
         colorscale=[
-            [0.0, 'rgb(255,255,255)'],  # purple (low)
-            [0.3, 'rgb(128,0,128)'],# white (mid)
-            [1.0, 'rgb(0,0,128)']     # navy (high)
+            [0.0, 'rgb(128,0,128)'],   # purple (low)
+            [0.5, 'rgb(255,255,255)'], # white (mid)
+            [1.0, 'rgb(0,0,128)']      # navy (high)
         ],
         z=z, x=x, y=y, zmin=0.0, zmax=1.0,
         colorbar=dict(title="Median Score"),

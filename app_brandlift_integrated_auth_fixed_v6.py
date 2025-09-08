@@ -654,8 +654,8 @@ def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
         hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"
     ))
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
-    st.plotly_chart(hm, use_container_width=True)
-    st.dataframe(fig_df, use_container_width=True)
+    st.plotly_chart(hm, width='stretch')
+    st.dataframe(fig_df, width='stretch')
 
 # ------------- Correlation Explorer (integrated) -------------
 def _records_to_long_df(records: list[dict]) -> pd.DataFrame:
@@ -738,7 +738,7 @@ def render_correlation_section():
         margin=dict(l=60, r=30, t=30, b=60),
         coloraxis_colorbar=dict(title="Corr", tickformat=".2f")
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Top pairs
     pairs = []
@@ -781,7 +781,7 @@ with hdr_right:
     logo_url = st.session_state.get("company_logo_url", st.secrets.get("COMPANY_LOGO_URL", "").strip())
     if logo_url:
         try:
-            st.image(logo_url, use_container_width=True)
+            st.image(logo_url, width='stretch')
         except Exception:
             pass
     else:
@@ -794,7 +794,7 @@ st.sidebar.markdown("### Account")
 st.sidebar.caption(f"User: **{st.session_state.get('auth_user', '—')}**")
 if st.sidebar.button("Log out"):
     _auth_reset()
-    st.experimental_rerun()
+    st.rerun()
 
 
 api_key = st.secrets.get("ANTHROPIC_API_KEY", "").strip()
@@ -929,7 +929,7 @@ if base_scores or improved_scores or comp_scores:
                 try:
                     lower_cli = client_url.lower()
                     if lower_cli.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
-                        st.image(client_url, use_container_width=True)
+                        st.image(client_url, width='stretch')
                     elif lower_cli.endswith(('.mp4', '.webm', '.ogg')) or 'youtube.com' in lower_cli or 'youtu.be' in lower_cli or 'vimeo.com' in lower_cli:
                         st.video(client_url)
                 except Exception:
@@ -955,7 +955,7 @@ if base_scores or improved_scores or comp_scores:
                 st.markdown(f"[Open creative]({comp_link})")
                 try:
                     if lower.endswith(('.png','.jpg','.jpeg','.webp','.gif')):
-                        st.image(comp_link, use_container_width=True)
+                        st.image(comp_link, width='stretch')
                     elif lower.endswith(('.mp4','.webm','.ogg')) or 'youtube.com' in lower or 'youtu.be' in lower or 'vimeo.com' in lower:
                         st.video(comp_link)
                 except Exception:
@@ -1049,7 +1049,10 @@ st.subheader("Channel Trends Over Time")
 st.caption("Channel attribute trends over time. For non-demo users, shows only actual scores over time.")
 
 def _seed_demo_trends():
-    """Create 12-month synthetic time series per (Entity, Variant, Channel, Attribute) using random walks."""
+    """Seed 12‑month synthetic trends ONLY for the test user (preload_demo=True)."""
+    if not st.session_state.get('preload_demo'):
+        return
+"""Create 12-month synthetic time series per (Entity, Variant, Channel, Attribute) using random walks."""
     if "monthly_attr_trends" in st.session_state:
         df = st.session_state["monthly_attr_trends"]
         if isinstance(df, pd.DataFrame) and set(["Entity","Variant"]).issubset(df.columns):
@@ -1139,9 +1142,9 @@ def _plot_channel_trends(df_channel: pd.DataFrame):
         margin=dict(l=40, r=20, t=60, b=40),
         legend_title="Attribute"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
-    st.dataframe(wide, use_container_width=True)
+    st.dataframe(wide, width='stretch')
 
 _seed_demo_trends()
 

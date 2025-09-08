@@ -1,4 +1,41 @@
 # app_brandlift_integrated.py
+
+def _call_messages(api_key: str, system: str, user_content: str, model: str, temperature: float = 0.2, max_tokens: int = 700) -> str:
+    """
+    Minimal Anthropic Messages API caller using httpx.
+    Returns concatenated text blocks or raises RuntimeError on HTTP error.
+    """
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+    payload = {
+        "model": model,
+        "system": system,
+        "messages": [{"role": "user", "content": user_content}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    try:
+        resp = httpx.post(API_BASE, headers=headers, json=payload, timeout=60)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Anthropic API error: HTTP {resp.status_code} - {resp.text[:200]}")
+        data = resp.json()
+        blocks = data.get("content", [])
+        texts = []
+        for b in blocks:
+            if isinstance(b, dict) and b.get("type") == "text" and "text" in b:
+                texts.append(b["text"])
+        if texts:
+            return "\\n".join(texts)
+        if blocks and isinstance(blocks[0], dict) and "text" in blocks[0]:
+            return blocks[0]["text"]
+        return ""
+    except Exception as e:
+        raise RuntimeError(str(e))
+
+
 # Fully integrated Brand Lift demo app:
 # - Scoring, improvement, competitor comparison, radar charts (from base app)
 # - Attribute Importance Heatmap (median by channel, with filters)

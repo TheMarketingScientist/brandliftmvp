@@ -1,3 +1,14 @@
-AUTH_MODE = "PASSWORD"  # or "AUTH0"
-APP_PASSWORD = "ChangeMe"  # dev default; can be overridden by a secret
+ANTHROPIC_API_KEY="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"
+
+# --- Mode ---
+AUTH_MODE = "PASSWORD"     # change to "AUTH0" if you wire Auth0 Lite
+# --- Password mode ---
+APP_PASSWORD = "ChangeMe"  # any non-test user will use this password
+# --- Branding (used on login + header/sidebar after login) ---
 COMPANY_LOGO_URL = "https://raw.githubusercontent.com/TheMarketingScientist/brandliftmvp/main/logo.png"
+
+
+SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJI..."            # anon key
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJI..."    # service role (used only in admin actions)
+APP_BASE_URL = "https://your-streamlit-app-url"  # optional, for email redirects later

@@ -1,5 +1,44 @@
 # app_brandlift_integrated.py
 
+# ---- config + secrets loader ----
+import os
+from pathlib import Path
+import streamlit as st
+import tomllib  # Python 3.11+
+
+# read committed config (non-secrets)
+_CFG = {}
+_cfg_path = Path(".streamlit/app_config.toml")
+if _cfg_path.exists():
+    with open(_cfg_path, "rb") as f:
+        _CFG = tomllib.load(f)
+
+def cfg(name: str, default=None):
+    """Order: ENV → st.secrets → app_config.toml → fallback"""
+    v = os.getenv(name)
+    if v is not None:
+        return v
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return _CFG.get(name, default)
+
+# non-secrets (have defaults)
+AUTH_MODE         = cfg("AUTH_MODE", "PASSWORD")
+APP_PASSWORD      = cfg("APP_PASSWORD", "ChangeMe")
+COMPANY_LOGO_URL  = cfg("COMPANY_LOGO_URL", "")
+
+# required secret
+ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
+if not ANTHROPIC_API_KEY:
+    st.error("Missing ANTHROPIC_API_KEY. Set it once in Streamlit Cloud → Secrets or GitHub → Codespaces → Secrets.")
+    st.stop()
+# ---- end loader ----
+
+
+
 def _call_messages(api_key: str, system: str, user_content: str, model: str, temperature: float = 0.2, max_tokens: int = 700) -> str:
     """
     Minimal Anthropic Messages API caller using httpx.

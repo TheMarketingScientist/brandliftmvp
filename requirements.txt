@@ -1,3 +1,4 @@
 streamlit
 plotly
 httpx
+supabase>=2.4.0

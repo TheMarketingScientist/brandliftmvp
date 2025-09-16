@@ -111,39 +111,12 @@ def maybe_refresh_session():
     except Exception:
         pass
 
-
 def _fetch_active_membership(uid: str):
-    """
-    Returns (organization_id, role) for an active membership or (None, None) if none.
-    Uses maybe_single() to avoid exceptions when 0 rows are returned.
-    """
-    try:
-        q = (sb_client()
-             .table("memberships")
-             .select("organization_id, role, status")
-             .eq("auth_user_id", uid)
-             .eq("status", "active")
-             .limit(1))
-        # Prefer maybe_single (no error on 0 rows)
-        try:
-            res = q.maybe_single().execute()
-            row = res.data
-        except Exception:
-            # Fallback for environments without maybe_single()
-            res = q.execute()
-            data = res.data or []
-            row = data[0] if isinstance(data, list) and data else None
-
-        if not row:
-            return None, None
-
-        # row may be dict or list item
-        org_id = row.get("organization_id") if isinstance(row, dict) else row["organization_id"]
-        role = row.get("role") if isinstance(row, dict) else row["role"]
-        return org_id, role
-    except Exception:
-        # On any API error (e.g., RLS), return no membership so caller can handle cleanly
+    res = sb_client().table("memberships")         .select("organization_id, role, status")         .eq("auth_user_id", uid).eq("status", "active")         .limit(1).single().execute()
+    if not res.data:
         return None, None
+    return res.data["organization_id"], res.data["role"]
+
 def _fetch_org(org_id: str):
     res = sb_client().table("organizations")         .select("id, name, logo_url").eq("id", org_id)         .single().execute()
     return res.data

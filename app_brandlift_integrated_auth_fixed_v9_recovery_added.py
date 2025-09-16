@@ -196,6 +196,9 @@ def login_view():
             st.error(f"Could not send reset email: {e}")
 
 
+
+
+
 def _password_recovery_view():
     """Handles Supabase password reset links (code OR access/refresh tokens)."""
     st.title("Reset your password")
@@ -247,7 +250,24 @@ def _password_recovery_view():
         except Exception as e:
             st.error(f"Could not update password: {e}")
             st.info("If this persists, click the reset link again from your email.")
+def _get_query_params() -> dict:
+    """Works on both new and legacy Streamlit."""
+    try:
+        return dict(st.query_params)  # Streamlit >= 1.30
+    except Exception:
+        pass
+    try:
+        return dict(st.experimental_get_query_params())  # legacy
+    except Exception:
+        return {}
 
+
+def _qp_get(q: dict, key: str, default=None):
+    """Return single value from st.query_params dict (supports list or scalar)."""
+    v = q.get(key, default)
+    if isinstance(v, list):
+        return v[0] if v else default
+    return v
 def _post_login_bootstrap():
     ss = st.session_state
     u = ss.sb_user
@@ -271,30 +291,48 @@ def _post_login_bootstrap():
     ss.org_id, ss.role = org_id, role
     ss.org = _fetch_org(org_id)
 
-def require_auth():
 
+def require_auth():
+    """
+    Unified guard:
+      1) Initialize session
+      2) Handle password recovery links early
+      3) Demo/password gate
+      4) Supabase session + membership
+    """
     init_session()
-    # If we're handling a password recovery link, route there and stop.
+
+    # (1) Handle password recovery links early
     try:
-    q = _get_query_params()
+        q = _get_query_params()
     except Exception:
-    q = {}
-    if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-    _password_recovery_view()
-    init_session()
+        q = {}
+    tp  = _qp_get(q, "type")
+    code_param = _qp_get(q, "code")
+    at   = _qp_get(q, "access_token")
+    rt   = _qp_get(q, "refresh_token")
+
+    if (tp == "recovery") or code_param or (at and rt):
+        _password_recovery_view()
+        st.stop()
+
+    # (2) Refresh session if possible (no-op if not applicable)
     maybe_refresh_session()
+
+    # (3) Demo mode: simple password gate
     if DEMO_MODE:
-    if not _password_demo_gate():
-    st.stop()
-    return
-    # Supabase auth
+        if not _password_demo_gate():
+            st.stop()
+        return
+
+    # (4) Supabase auth required
     if not st.session_state.get("sb_user"):
-    login_view()
-    st.stop()
+        login_view()
+        st.stop()
     if not st.session_state.get("org_id") or not st.session_state.get("role"):
-    _post_login_bootstrap()
-    if not st.session_state.get("org_id"):
-    st.stop()
+        _post_login_bootstrap()
+        if not st.session_state.get("org_id"):
+            st.stop()
 
 def require_role(allowed: set[str]):
     if DEMO_MODE:
@@ -1041,22 +1079,3 @@ else:
         st.info("No trend data for the selected channel.")
     else:
         _plot_channel_trends(filtered)
-
-
-def _qp_get(q: dict, key: str, default=None):
-    """Return single value from st.query_params dict (supports list or scalar)."""
-    v = q.get(key, default)
-    if isinstance(v, list):
-        return v[0] if v else default
-    return v
-
-def _get_query_params() -> dict:
-    """Works on both new and legacy Streamlit."""
-    try:
-        return dict(st.query_params)  # Streamlit >= 1.30
-    except Exception:
-        pass
-    try:
-        return dict(st.experimental_get_query_params())  # legacy
-    except Exception:
-        return {}

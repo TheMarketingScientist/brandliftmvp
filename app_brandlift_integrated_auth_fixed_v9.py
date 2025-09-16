@@ -46,6 +46,7 @@ SUPABASE_URL = cfg("SUPABASE_URL")
 SUPABASE_ANON_KEY = cfg("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
+RECOVERY_BRIDGE_URL = cfg(\"RECOVERY_BRIDGE_URL\", \"\")  # optional bridge URL for password resets
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
 # ---------- Brand Theme ----------
@@ -262,6 +263,40 @@ def _adopt_hash_params():
     """, height=0)
 
 
+
+
+def _recovery_paste_box():
+    """Paste the full recovery link (handles #access_token or ?code) to proceed if redirect fails."""
+    import urllib.parse as _up
+    with st.expander("Having trouble with the email link? Paste the full link here"):
+        raw = st.text_input("Paste the entire link from your email")
+        if st.button("Continue with this link"):
+            if not raw:
+                st.warning("Please paste the link first."); st.stop()
+            try:
+                u = _up.urlsplit(raw.strip())
+                frag = u.fragment
+                q = dict(_up.parse_qsl(u.query or ""))
+                f = dict(_up.parse_qsl(frag or ""))
+                code = f.get("code") or q.get("code") or f.get("auth_code") or q.get("auth_code")
+                acc = f.get("access_token") or q.get("access_token")
+                ref = f.get("refresh_token") or q.get("refresh_token")
+                if code and hasattr(sb_client().auth, "exchange_code_for_session"):
+                    out = sb_client().auth.exchange_code_for_session(code)
+                    st.session_state.sb_session = out.session
+                    st.session_state.sb_user = out.user
+                    _password_recovery_view()
+                elif acc and ref and hasattr(sb_client().auth, "set_session"):
+                    out = sb_client().auth.set_session(acc, ref)
+                    st.session_state.sb_session = getattr(out, "session", None) or st.session_state.get("sb_session")
+                    st.session_state.sb_user = getattr(out, "user", None) or st.session_state.get("sb_user")
+                    _password_recovery_view()
+                else:
+                    st.error("Could not find recovery tokens in that link. Please request a new email.")
+                st.stop()
+            except Exception as e:
+                st.error(f"Invalid link: {e}"); st.stop()
+
 # -----------------------------
 def login_view():
     # Adopt Supabase tokens from hash -> query, then route to reset page if detected
@@ -284,7 +319,7 @@ def login_view():
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            sb_client().auth.reset_password_for_email(email, options={'redirect_to': (APP_BASE_URL.rstrip('/') if APP_BASE_URL else '')})
+            sb_client().auth.reset_password_for_email(email, options={'redirect_to': ((RECOVERY_BRIDGE_URL or APP_BASE_URL or '').rstrip('/'))})
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")

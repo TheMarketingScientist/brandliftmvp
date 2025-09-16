@@ -3,4 +3,4 @@ plotly
 httpx
 supabase>=2.4.0
 anthropic>=0.34.0
-
+pandas>=2.2.2

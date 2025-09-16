@@ -219,21 +219,23 @@ def _post_login_bootstrap():
     ss.org = _fetch_org(org_id)
 
 def require_auth():
-
-init_session()
-# If we're handling a password recovery link, route there and stop.
-try:
-    q = _get_query_params()
-except Exception:
-    q = {}
-if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-    _password_recovery_view()
     init_session()
+    # If we're handling a password recovery link, route there and stop before any DB calls.
+    try:
+        q = _get_query_params()
+    except Exception:
+        q = {}
+    if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
+        _password_recovery_view()
+        st.stop()
+
+    # Normal flow
     maybe_refresh_session()
-    if DEMO_MODE:
+    if 'DEMO_MODE' in globals() and DEMO_MODE:
         if not _password_demo_gate():
             st.stop()
         return
+
     # Supabase auth
     if not st.session_state.get("sb_user"):
         login_view()

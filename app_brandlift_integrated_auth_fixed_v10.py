@@ -220,28 +220,28 @@ def _post_login_bootstrap():
 
 def require_auth():
 
-init_session()
-# If we're handling a password recovery link, route there and stop.
-try:
-    q = _get_query_params()
-except Exception:
-    q = {}
-if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-    _password_recovery_view()
     init_session()
-    maybe_refresh_session()
-    if DEMO_MODE:
-        if not _password_demo_gate():
+    # If we're handling a password recovery link, route there and stop.
+    try:
+        q = _get_query_params()
+    except Exception:
+        q = {}
+    if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
+        _password_recovery_view()
+        init_session()
+        maybe_refresh_session()
+        if DEMO_MODE:
+            if not _password_demo_gate():
+                st.stop()
+            return
+        # Supabase auth
+        if not st.session_state.get("sb_user"):
+            login_view()
             st.stop()
-        return
-    # Supabase auth
-    if not st.session_state.get("sb_user"):
-        login_view()
-        st.stop()
-    if not st.session_state.get("org_id") or not st.session_state.get("role"):
-        _post_login_bootstrap()
-        if not st.session_state.get("org_id"):
-            st.stop()
+        if not st.session_state.get("org_id") or not st.session_state.get("role"):
+            _post_login_bootstrap()
+            if not st.session_state.get("org_id"):
+                st.stop()
 
 def require_role(allowed: set[str]):
     if DEMO_MODE:
@@ -988,4 +988,3 @@ else:
         st.info("No trend data for the selected channel.")
     else:
         _plot_channel_trends(filtered)
-

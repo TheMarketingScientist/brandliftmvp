@@ -1,12 +1,11 @@
 ANTHROPIC_API_KEY="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"
 
-# --- Mode ---
-AUTH_MODE = "PASSWORD"     # change to "AUTH0" if you wire Auth0 Lite
+# --- Demo Mode ---
+# AUTH_MODE = "PASSWORD"     # if you need to run demo mode
 # --- Password mode ---
 APP_PASSWORD = "ChangeMe"  # any non-test user will use this password
 # --- Branding (used on login + header/sidebar after login) ---
 COMPANY_LOGO_URL = "https://raw.githubusercontent.com/TheMarketingScientist/brandliftmvp/main/logo.png"
-
 
 SUPABASE_URL = "https://ncfozgcycskvmyiacdqo.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jZm96Z2N5Y3Nrdm15aWFjZHFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MzUyMDIsImV4cCI6MjA3MzAxMTIwMn0.hP5Te-K5P9eYob8eit9Uq3DenlP3lkY4pLUQgR2slis"            # anon key

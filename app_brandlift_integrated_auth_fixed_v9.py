@@ -46,7 +46,7 @@ SUPABASE_URL = cfg("SUPABASE_URL")
 SUPABASE_ANON_KEY = cfg("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
-RECOVERY_BRIDGE_URL = cfg(\"RECOVERY_BRIDGE_URL\", \"\")  # optional bridge URL for password resets
+RECOVERY_BRIDGE_URL = cfg("RECOVERY_BRIDGE_URL", "")  # optional bridge URL for password resets
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
 # ---------- Brand Theme ----------

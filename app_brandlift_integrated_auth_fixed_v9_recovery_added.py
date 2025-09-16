@@ -220,13 +220,13 @@ def _post_login_bootstrap():
 
 def require_auth():
 
-init_session()
-# If we're handling a password recovery link, route there and stop.
-try:
+    init_session()
+    # If we're handling a password recovery link, route there and stop.
+    try:
     q = _get_query_params()
-except Exception:
+    except Exception:
     q = {}
-if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
+    if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
     _password_recovery_view()
     init_session()
     maybe_refresh_session()
@@ -988,4 +988,3 @@ else:
         st.info("No trend data for the selected channel.")
     else:
         _plot_channel_trends(filtered)
-

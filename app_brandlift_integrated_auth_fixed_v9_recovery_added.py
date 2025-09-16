@@ -45,6 +45,7 @@ SUPABASE_URL = cfg("SUPABASE_URL")
 SUPABASE_ANON_KEY = cfg("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
+RECOVERY_BRIDGE_URL = cfg("RECOVERY_BRIDGE_URL", "")
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
 # ---------- Brand Theme ----------
@@ -188,12 +189,25 @@ def login_view():
                 st.stop()
         except Exception as e:
             st.error(f"Login failed: {e}")
-    if c2.button("Forgot password?"):
+if c2.button("Forgot password?"):
+    if not email:
+        st.warning("Enter your email above first.")
+    else:
         try:
-            sb_client().auth.reset_password_for_email(email)
-            st.info("Password reset email sent (if the email exists).")
+            # Prefer your GitHub Pages bridge; fall back to app URL
+            redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
+
+            kwargs = {}
+            if redirect:
+                kwargs["options"] = {"redirect_to": redirect}
+
+            sb_client().auth.reset_password_for_email(email, **kwargs)
+            st.success("If that email exists, we sent a reset link.")
+            if not redirect:
+                st.info("Tip: set RECOVERY_BRIDGE_URL or APP_BASE_URL so the email link returns to your app.")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
+
 
 def _post_login_bootstrap():
     ss = st.session_state

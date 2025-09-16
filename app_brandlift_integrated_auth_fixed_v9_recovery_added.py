@@ -45,7 +45,6 @@ SUPABASE_URL = cfg("SUPABASE_URL")
 SUPABASE_ANON_KEY = cfg("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
-RECOVERY_BRIDGE_URL = cfg("RECOVERY_BRIDGE_URL", "")
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
 # ---------- Brand Theme ----------
@@ -164,19 +163,6 @@ def _password_demo_gate():
 
         st.sidebar.error("Wrong credentials")
     return False
-# at the top with your other config reads (if not already present)
-RECOVERY_BRIDGE_URL = cfg("RECOVERY_BRIDGE_URL", "")
-
-# optional helper (safe clear for old/new Streamlit)
-def _clear_query_params():
-    try:
-        st.query_params.clear()
-    except Exception:
-        try:
-            st.experimental_set_query_params()
-        except Exception:
-            pass
-
 # -----------------------------
 # Auth views & guards
 # -----------------------------
@@ -184,48 +170,83 @@ def login_view():
     st.title("Sign in")
     email = st.text_input("Email", key="sb_email")
     pwd = st.text_input("Password", type="password", key="sb_pwd")
-
     c1, c2 = st.columns(2)
-
-    # --- Sign in ---
-    with c1:
-        if st.button("Sign in"):
+    if c1.button("Sign in"):
+        try:
+            out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
+            st.session_state.sb_session = out.session
+            st.session_state.sb_user = out.user
             try:
-                out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
-                st.session_state.sb_session = out.session
-                st.session_state.sb_user = out.user
+                _post_login_bootstrap()
+                st.rerun()
+            except Exception:
+                st.info("Password updated. Please sign in with your new password.")
                 try:
-                    _post_login_bootstrap()
-                    st.rerun()
+                    st.experimental_set_query_params()
                 except Exception:
-                    # e.g., coming back from password update
-                    st.info("Password updated. Please sign in with your new password.")
-                    _clear_query_params()
-                    st.stop()
-            except Exception as e:
-                st.error(f"Login failed: {e}")
+                    pass
+                st.stop()
+        except Exception as e:
+            st.error(f"Login failed: {e}")
+    if c2.button("Forgot password?"):
+        try:
+            sb_client().auth.reset_password_for_email(email)
+            st.info("Password reset email sent (if the email exists).")
+        except Exception as e:
+            st.error(f"Could not send reset email: {e}")
 
-    # --- Forgot password? ---
-    with c2:
-        if st.button("Forgot password?"):
-            if not email:
-                st.warning("Enter your email above first.")
-            else:
+
+def _password_recovery_view():
+    """Handles Supabase password reset links (code OR access/refresh tokens)."""
+    st.title("Reset your password")
+
+    qp = _get_query_params()
+    tp  = _qp_get(qp, "type")
+    code_param = _qp_get(qp, "code")
+    access_token = _qp_get(qp, "access_token")
+    refresh_token = _qp_get(qp, "refresh_token")
+
+    # Try to set session from tokens or exchange code
+    try:
+        if access_token and refresh_token:
+            sb_client().auth.set_session(access_token, refresh_token)
+            st.session_state["sb_session"] = sb_client().auth.get_session()
+            st.session_state["sb_user"] = sb_client().auth.get_user().user
+        elif code_param:
+            try:
+                sb_client().auth.exchange_code_for_session(code_param)
+                st.session_state["sb_session"] = sb_client().auth.get_session()
+                st.session_state["sb_user"] = sb_client().auth.get_user().user
+            except Exception:
+                pass
+    except Exception as e:
+        st.info(f"Could not auto-establish session from link ({e}). You can still reset below.")
+
+    new_pwd = st.text_input("New password", type="password")
+    new_pwd2 = st.text_input("Confirm new password", type="password")
+    if st.button("Set new password"):
+        if not new_pwd:
+            st.error("Enter a new password.")
+            return
+        if new_pwd != new_pwd2:
+            st.error("Passwords do not match.")
+            return
+        try:
+            sb_client().auth.update_user({"password": new_pwd})
+            st.success("Password updated. Please sign in with your new password.")
+
+            # Clear query params to avoid re-triggering recovery on reload
+            try:
+                st.query_params.clear()
+            except Exception:
                 try:
-                    # Prefer your GitHub Pages bridge; fall back to app URL
-                    redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
-
-                    kwargs = {}
-                    if redirect:
-                        kwargs["options"] = {"redirect_to": redirect}
-
-                    sb_client().auth.reset_password_for_email(email, **kwargs)
-                    st.success("If that email exists, we sent a reset link.")
-                    if not redirect:
-                        st.info("Tip: set RECOVERY_BRIDGE_URL or APP_BASE_URL so the email link returns to your app.")
-                except Exception as e:
-                    st.error(f"Could not send reset email: {e}")
-
+                    st.experimental_set_query_params()
+                except Exception:
+                    pass
+            st.stop()
+        except Exception as e:
+            st.error(f"Could not update password: {e}")
+            st.info("If this persists, click the reset link again from your email.")
 
 def _post_login_bootstrap():
     ss = st.session_state
@@ -251,42 +272,29 @@ def _post_login_bootstrap():
     ss.org = _fetch_org(org_id)
 
 def require_auth():
-    """
-    Unified guard:
-      1) Initialize session state
-      2) If URL indicates a password recovery flow, render the recovery view and stop
-      3) If DEMO_MODE → handle password gate
-      4) Else require Supabase session + membership
-    """
+
     init_session()
-
-    # (1) Handle password recovery links early
+    # If we're handling a password recovery link, route there and stop.
     try:
-        q = _get_query_params()
+    q = _get_query_params()
     except Exception:
-        q = {}
-
+    q = {}
     if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-        _password_recovery_view()
-        st.stop()
-
-    # (2) Refresh session if possible (no-op if not applicable)
+    _password_recovery_view()
+    init_session()
     maybe_refresh_session()
-
-    # (3) Demo mode: simple password gate
     if DEMO_MODE:
-        if not _password_demo_gate():
-            st.stop()
-        return
-
-    # (4) Supabase auth required
+    if not _password_demo_gate():
+    st.stop()
+    return
+    # Supabase auth
     if not st.session_state.get("sb_user"):
-        login_view()
-        st.stop()
+    login_view()
+    st.stop()
     if not st.session_state.get("org_id") or not st.session_state.get("role"):
-        _post_login_bootstrap()
-        if not st.session_state.get("org_id"):
-            st.stop()
+    _post_login_bootstrap()
+    if not st.session_state.get("org_id"):
+    st.stop()
 
 def require_role(allowed: set[str]):
     if DEMO_MODE:
@@ -1034,25 +1042,21 @@ else:
     else:
         _plot_channel_trends(filtered)
 
-def _seed_demo_trends():
-    if not DEMO_MODE:
-        return
-    import pandas as pd, random
-    if st.session_state.get("monthly_attr_trends") is not None:
-        return
-    rng = random.Random(123)
-    from datetime import datetime, timedelta
-    today = datetime.utcnow().replace(day=1)
-    months = [(today - timedelta(days=30*i)).strftime("%Y-%m") for i in range(5,-1,-1)]
-    rows = []
-    for ch in CHANNELS[:3]:
-        for a in ATTRS[:5]:
-            base = rng.uniform(0.45, 0.65)
-            for idx, m in enumerate(months):
-                drift = (idx - len(months)/2) * 0.02
-                val = max(0.0, min(1.0, base + drift + rng.uniform(-0.05, 0.05)))
-                rows.append({"Month": m, "Attribute": _pretty_attr(a), "Score": round(val, 3), "Channel": ch, "Entity": "Demo", "Variant": "Original"})
-    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
 
-def render_correlation_section():
-    return
+def _qp_get(q: dict, key: str, default=None):
+    """Return single value from st.query_params dict (supports list or scalar)."""
+    v = q.get(key, default)
+    if isinstance(v, list):
+        return v[0] if v else default
+    return v
+
+def _get_query_params() -> dict:
+    """Works on both new and legacy Streamlit."""
+    try:
+        return dict(st.query_params)  # Streamlit >= 1.30
+    except Exception:
+        pass
+    try:
+        return dict(st.experimental_get_query_params())  # legacy
+    except Exception:
+        return {}

@@ -182,10 +182,7 @@ def login_view():
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            (
-            sb_client().auth.reset_password_for_email(email, redirect_to=(APP_BASE_URL.rstrip('/') if APP_BASE_URL else None))
-            if hasattr(sb_client().auth, 'reset_password_for_email') else None
-        )
+            sb_client().auth.reset_password_for_email(email)
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
@@ -670,11 +667,11 @@ Original:
         if len(dedup) >= n:
             break
     return dedup
-Leadership, Ease_of_Use, Quality, Luxury, Cost_Benefit, Trust.
-Each score is a float in [0,1]. Anchors: 0.2 = weak, 0.5 = moderate, 0.8 = strong.
-Return STRICT JSON with each attribute as {"score": float, "evidence": "short phrase (<=12 words)"}.
-No extra text.
-"""
+# Leadership, Ease_of_Use, Quality, Luxury, Cost_Benefit, Trust.
+# Each score is a float in [0,1]. Anchors: 0.2 = weak, 0.5 = moderate, 0.8 = strong.
+# Return STRICT JSON with each attribute as {"score": float, "evidence": "short phrase (<=12 words)"}.
+# No extra text.
+# """
 
 def _schema():
     return {
@@ -821,63 +818,6 @@ def _seed_demo_data():
     st.session_state["demo_trends"] = pd.DataFrame(demo_rows_tr)
     st.session_state["demo_seeded"] = True
 
-
-# ---------------- Correlation Explorer ----------------
-def render_correlation_section():
-    st.subheader("Correlation Explorer")
-    import pandas as pd
-    import plotly.graph_objects as go
-    df = None
-    # Try DB first (full mode)
-    if not (DEMO_MODE or not HAS_SB):
-        try:
-            res = sb_client().table("scored_item_attributes") \
-                .select("attribute, score") \
-                .eq("organization_id", st.session_state.org_id) \
-                .limit(5000).execute()
-            rows = res.data or []
-            if rows:
-                df = pd.DataFrame(rows)
-        except Exception as e:
-            st.info(f"Could not load raw attributes from DB: {e}")
-    # Fallback to session scores
-    if df is None or df.empty:
-        records = []
-        for label, key in [("Original","scores_base"), ("Improved","scores_improved"), ("Competitor","scores_comp")]:
-            sc = st.session_state.get(key)
-            if not sc: 
-                continue
-            for a in ATTRS:
-                val = sc.get(a,{}).get("score") if isinstance(sc.get(a), dict) else sc.get(a, None)
-                if val is not None:
-                    records.append({"attribute": a, "score": float(val), "series": label})
-        df = pd.DataFrame(records)
-    if df is None or df.empty:
-        st.info("No data available yet. Score some copy or connect Supabase to explore correlations.")
-        return
-    # Build wide matrix: rows are observations (by simple index), columns are attributes
-    # We'll pivot by attribute across series or observations
-    if "series" in df.columns:
-        df_wide = df.pivot_table(index=df.groupby("series").cumcount(), columns="attribute", values="score", aggfunc="mean")
-    else:
-        # assume multiple rows per attribute across items
-        df["idx"] = df.groupby("attribute").cumcount()
-        df_wide = df.pivot(index="idx", columns="attribute", values="score")
-    # Compute correlation
-    corr = df_wide.corr().reindex(ATTRS, columns=ATTRS)
-    # Pretty labels
-    corr.columns = [_pretty_attr(c) for c in corr.columns]
-    corr.index = [_pretty_attr(i) for i in corr.index]
-    fig = go.Figure(data=go.Heatmap(
-        z=corr.values,
-        x=list(corr.columns),
-        y=list(corr.index),
-        zmin=-1, zmax=1,
-        colorbar=dict(title="corr")
-    ))
-    fig.update_layout(margin=dict(l=20, r=20, t=10, b=10), height=420)
-    st.plotly_chart(fig, use_container_width=True)
-
 # -----------------------------
 # Dashboard (Brand Lift)
 
@@ -983,10 +923,18 @@ with st.expander("Improve your copy"):
                         st.warning("Nothing to score.")
                     else:
                         st.session_state['scores_improved'] = score_text(ANTHROPIC_API_KEY, rewritten.strip())
-                    db_insert_scored_item(st.session_state.get(\"entity_label\",\"My Brand\"), st.session_state.get('bl_channel_sel','CTV'),
-                                          \"Improved\", rewritten.strip(), None, st.session_state['scores_improved'])
-                        db_insert_scored_item(st.session_state.get("entity_label","My Brand"), st.session_state.get('bl_channel_sel','CTV'),
-                                              "Improved", rewritten.strip(), None, st.session_state['scores_improved'])
+                        # Persist to DB if available
+                        try:
+                            db_insert_scored_item(
+                                st.session_state.get('entity_label', 'My Brand'),
+                                st.session_state.get('bl_channel_sel','CTV'),
+                                "Improved",
+                                rewritten.strip(),
+                                None,
+                                st.session_state['scores_improved']
+                            )
+                        except Exception as e:
+                            st.warning(f"Could not persist score to DB: {e}")
                         st.success("Improved rewrite scored and saved (if DB enabled).")
     with colB:
         if st.button("Propose new ideas (2)", use_container_width=True, key="btn_ideas"):

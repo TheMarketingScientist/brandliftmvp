@@ -12,5 +12,5 @@ SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jZm96Z2N5Y3Nrdm15aWFjZHFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzQzNTIwMiwiZXhwIjoyMDczMDExMjAyfQ.VvhHQjlkQ3CgOVGTgLPIinBlhTTzeiSb2JpqoDyaj2o"    # service role (used only in admin actions)
 APP_BASE_URL = "https://brandliftmvp-fzomyyitxxamw3xz7gmmzi.streamlit.app"  # optional, for email redirects later
 AUTH_MODE = "SUPABASE"
-RECOVERY_BRIDGE_URL = "https://themarketingscientist.github.io/brandliftmvp/passwordreset.html"
+RECOVERY_BRIDGE_URL = "https://themarketingscientist.co/brandliftmvp/passwordreset.html"
 

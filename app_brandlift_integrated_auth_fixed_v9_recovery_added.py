@@ -231,17 +231,17 @@ def require_auth():
     init_session()
     maybe_refresh_session()
     if DEMO_MODE:
-        if not _password_demo_gate():
-            st.stop()
-        return
+    if not _password_demo_gate():
+    st.stop()
+    return
     # Supabase auth
     if not st.session_state.get("sb_user"):
-        login_view()
-        st.stop()
+    login_view()
+    st.stop()
     if not st.session_state.get("org_id") or not st.session_state.get("role"):
-        _post_login_bootstrap()
-        if not st.session_state.get("org_id"):
-            st.stop()
+    _post_login_bootstrap()
+    if not st.session_state.get("org_id"):
+    st.stop()
 
 def require_role(allowed: set[str]):
     if DEMO_MODE:

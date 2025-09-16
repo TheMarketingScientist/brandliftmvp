@@ -112,7 +112,7 @@ def maybe_refresh_session():
         pass
 
 def _fetch_active_membership(uid: str):
-    res = sb_client().table("memberships")         .select("organization_id, role, status")         .eq("auth_user_id", uid).eq("status", "active")         .limit(1).single().execute()
+    res = sb_client().table("memberships")         .select("organization_id, role, status")         .eq("auth_user_id", uid).eq("status", "active")         .limit(1).maybe_single().execute()
     if not res.data:
         return None, None
     return res.data["organization_id"], res.data["role"]
@@ -191,7 +191,7 @@ def login_view():
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            sb_client().auth.reset_password_for_email(email)
+            sb_client().auth.reset_password_for_email(email, options={'redirect_to': RECOVERY_BRIDGE_URL or APP_BASE_URL})
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
@@ -200,13 +200,14 @@ def login_view():
 
 
 
+
 def _password_recovery_view():
-    """Handles Supabase password reset links (code OR access/refresh tokens)."""
+    """Handles Supabase password reset links (code OR access/refresh tokens) and auto-signs in after update."""
     st.title("Reset your password")
 
     qp = _get_query_params()
     tp  = _qp_get(qp, "type")
-    code_param = _qp_get(qp, "code")
+    code_param = _qp_get(qp, "code") or _qp_get(qp, "token") or _qp_get(qp, "token_hash")
     access_token = _qp_get(qp, "access_token")
     refresh_token = _qp_get(qp, "refresh_token")
 
@@ -237,20 +238,46 @@ def _password_recovery_view():
             return
         try:
             sb_client().auth.update_user({"password": new_pwd})
-            st.success("Password updated. Please sign in with your new password.")
+            st.success("Password updated. Signing you in…")
 
-            # Clear query params to avoid re-triggering recovery on reload
+            # Attempt automatic sign-in with the new password
+            user_email = None
             try:
-                st.query_params.clear()
+                current_user = sb_client().auth.get_user()
+                user_email = getattr(current_user, "user", None).email if current_user else None
+                if not user_email and st.session_state.get("sb_user"):
+                    user_email = getattr(st.session_state["sb_user"], "email", None)
             except Exception:
+                user_email = None
+
+            if user_email:
                 try:
-                    st.experimental_set_query_params()
-                except Exception:
-                    pass
+                    out = sb_client().auth.sign_in_with_password({"email": user_email, "password": new_pwd})
+                    st.session_state["sb_session"] = out.session
+                    st.session_state["sb_user"] = out.user
+                    try:
+                        _post_login_bootstrap()
+                    except Exception:
+                        pass
+                    try:
+                        st.query_params.clear()
+                    except Exception:
+                        try:
+                            st.experimental_set_query_params()
+                        except Exception:
+                            pass
+                    st.rerun()
+                except Exception as e:
+                    st.info("Password updated. Please return to the login screen and sign in with your new password.")
+            else:
+                st.info("Password updated. Please return to the login screen and sign in with your new password.")
+
             st.stop()
         except Exception as e:
             st.error(f"Could not update password: {e}")
             st.info("If this persists, click the reset link again from your email.")
+
+
 def _get_query_params() -> dict:
     """Works on both new and legacy Streamlit."""
     try:
@@ -299,20 +326,21 @@ def require_auth():
     Unified guard:
       1) Initialize session
       2) Handle password recovery links early
-      3) Demo/password gate
-      4) Supabase session + membership
+      3) Maybe refresh session
+      4) Demo/password gate
+      5) Supabase session + membership
     """
     init_session()
 
-    # --- EARLY: handle password recovery ---
+    # (1) Handle password recovery links early
     try:
         q = _get_query_params()
     except Exception:
         q = {}
-    tp   = _qp_get(q, "type")
-    code_param = _qp_get(q, "code")
-    at   = _qp_get(q, "access_token")
-    rt   = _qp_get(q, "refresh_token")
+    tp = _qp_get(q, "type")
+    code_param = _qp_get(q, "code") or _qp_get(q, "token") or _qp_get(q, "token_hash")
+    at = _qp_get(q, "access_token")
+    rt = _qp_get(q, "refresh_token")
 
     if (tp == "recovery") or code_param or (at and rt):
         _password_recovery_view()
@@ -464,7 +492,7 @@ def page_admin_users():
             st.error(f"Resend failed: {e}")
     if c4.button("Trigger password reset"):
         try:
-            sb_client().auth.reset_password_for_email(email3)
+            sb_client().auth.reset_password_for_email(email3, options={'redirect_to': RECOVERY_BRIDGE_URL or APP_BASE_URL})
             st.success("Reset email sent.")
         except Exception as e:
             st.error(f"Reset failed: {e}")

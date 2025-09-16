@@ -219,29 +219,42 @@ def _post_login_bootstrap():
     ss.org = _fetch_org(org_id)
 
 def require_auth():
+    """
+    Unified guard:
+      1) Initialize session state
+      2) If URL indicates a password recovery flow, render the recovery view and stop
+      3) If DEMO_MODE → handle password gate
+      4) Else require Supabase session + membership
+    """
+    init_session()
 
-    init_session()
-    # If we're handling a password recovery link, route there and stop.
+    # (1) Handle password recovery links early
     try:
-    q = _get_query_params()
+        q = _get_query_params()
     except Exception:
-    q = {}
+        q = {}
+
     if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-    _password_recovery_view()
-    init_session()
+        _password_recovery_view()
+        st.stop()
+
+    # (2) Refresh session if possible (no-op if not applicable)
     maybe_refresh_session()
+
+    # (3) Demo mode: simple password gate
     if DEMO_MODE:
-    if not _password_demo_gate():
-    st.stop()
-    return
-    # Supabase auth
+        if not _password_demo_gate():
+            st.stop()
+        return
+
+    # (4) Supabase auth required
     if not st.session_state.get("sb_user"):
-    login_view()
-    st.stop()
+        login_view()
+        st.stop()
     if not st.session_state.get("org_id") or not st.session_state.get("role"):
-    _post_login_bootstrap()
-    if not st.session_state.get("org_id"):
-    st.stop()
+        _post_login_bootstrap()
+        if not st.session_state.get("org_id"):
+            st.stop()
 
 def require_role(allowed: set[str]):
     if DEMO_MODE:
@@ -988,3 +1001,26 @@ else:
         st.info("No trend data for the selected channel.")
     else:
         _plot_channel_trends(filtered)
+
+def _seed_demo_trends():
+    if not DEMO_MODE:
+        return
+    import pandas as pd, random
+    if st.session_state.get("monthly_attr_trends") is not None:
+        return
+    rng = random.Random(123)
+    from datetime import datetime, timedelta
+    today = datetime.utcnow().replace(day=1)
+    months = [(today - timedelta(days=30*i)).strftime("%Y-%m") for i in range(5,-1,-1)]
+    rows = []
+    for ch in CHANNELS[:3]:
+        for a in ATTRS[:5]:
+            base = rng.uniform(0.45, 0.65)
+            for idx, m in enumerate(months):
+                drift = (idx - len(months)/2) * 0.02
+                val = max(0.0, min(1.0, base + drift + rng.uniform(-0.05, 0.05)))
+                rows.append({"Month": m, "Attribute": _pretty_attr(a), "Score": round(val, 3), "Channel": ch, "Entity": "Demo", "Variant": "Original"})
+    st.session_state["monthly_attr_trends"] = pd.DataFrame(rows)
+
+def render_correlation_section():
+    return

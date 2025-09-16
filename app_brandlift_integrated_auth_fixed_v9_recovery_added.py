@@ -167,39 +167,44 @@ def _password_demo_gate():
 # -----------------------------
 # Auth views & guards
 # -----------------------------
+
 def login_view():
     st.title("Sign in")
     email = st.text_input("Email", key="sb_email")
     pwd = st.text_input("Password", type="password", key="sb_pwd")
+
     c1, c2 = st.columns(2)
-    if c1.button("Sign in"):
-        try:
-            out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
-            st.session_state.sb_session = out.session
-            st.session_state.sb_user = out.user
-             _post_login_bootstrap()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Login failed: {e}")
-    if c2.button("Forgot password?"):
-        if not email:
-            st.warning("Enter your email above first.")
-        else:
+
+    # --- Sign in ---
+    with c1:
+        if st.button("Sign in"):
             try:
-                redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
-                kwargs = {}
-                if redirect:
-                    kwargs["options"] = {"redirect_to": redirect}
-                sb_client().auth.reset_password_for_email(email, **kwargs)
-                st.success("If that email exists, we sent a reset link.")
-                if not redirect:
-                    st.info("Tip: set RECOVERY_BRIDGE_URL or APP_BASE_URL so the email link returns to your app.")
+                out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
+                st.session_state.sb_session = out.session
+                st.session_state.sb_user = out.user
+                _post_login_bootstrap()
+                st.rerun()
             except Exception as e:
-                st.error(f"Could not send reset email: {e}")
+                st.error(f"Login failed: {e}")
 
-
-
-
+    # --- Forgot password? ---
+    with c2:
+        if st.button("Forgot password?"):
+            if not email:
+                st.warning("Enter your email above first.")
+            else:
+                try:
+                    # Prefer your GitHub Pages bridge; fall back to app URL
+                    redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
+                    kwargs = {}
+                    if redirect:
+                        kwargs["options"] = {"redirect_to": redirect}
+                    sb_client().auth.reset_password_for_email(email, **kwargs)
+                    st.success("If that email exists, we sent a reset link.")
+                    if not redirect:
+                        st.info("Tip: set RECOVERY_BRIDGE_URL or APP_BASE_URL so the email link returns to your app.")
+                except Exception as e:
+                    st.error(f"Could not send reset email: {e}")
 
 def _password_recovery_view():
     """Handles Supabase password reset links (code OR access/refresh tokens)."""
@@ -464,11 +469,7 @@ def page_admin_users():
             st.error(f"Resend failed: {e}")
     if c4.button("Trigger password reset"):
         try:
-            redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
-            kwargs = {}
-            if redirect:
-                kwargs["options"] = {"redirect_to": redirect}
-            sb_client().auth.reset_password_for_email(email3, **kwargs)
+            sb_client().auth.reset_password_for_email(email3)
             st.success("Reset email sent.")
         except Exception as e:
             st.error(f"Reset failed: {e}")

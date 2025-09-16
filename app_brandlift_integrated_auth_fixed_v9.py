@@ -44,18 +44,6 @@ SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
-# --- Brand palette (from v6) ---
-BRAND_BLUE   = "#445DA7"  # Original
-BRAND_PURPLE = "#6B3894"  # Improved
-BRAND_NAVY   = "#2E3C71"
-COMP_TEAL    = "#2AA9A1"  # Competitor
-HEATMAP_COLORSCALE = [
-    [0.0, 'rgb(128,0,128)'],  # purple low
-    [0.5, 'rgb(255,255,255)'],# white mid
-    [1.0, 'rgb(0,0,128)']     # navy high
-]
-CORR_COLORSCALE = HEATMAP_COLORSCALE  # keep same look
-
 # Fail fast for critical secrets used at runtime
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     st.error("Missing Supabase URL or ANON key. Set them once in Streamlit → Secrets or .streamlit/secrets.toml locally.")
@@ -159,17 +147,8 @@ def _post_login_bootstrap():
     ss.org_id, ss.role = org_id, role
     ss.org = _fetch_org(org_id)
 
-
 def require_auth():
     init_session()
-    # If we're handling a password recovery link, route there and stop.
-    try:
-        q = _get_query_params()
-    except Exception:
-        q = {}
-    if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-        _password_recovery_view()
-
     maybe_refresh_session()
     if not st.session_state.get("sb_user"):
         login_view()
@@ -178,7 +157,6 @@ def require_auth():
         _post_login_bootstrap()
         if not st.session_state.get("org_id"):
             st.stop()
-
 
 def require_role(allowed: set[str]):
     require_auth()
@@ -424,33 +402,25 @@ elif page == "Org Settings":
     st.stop()
 
 def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
-    if fig_df.empty or len(fig_df.columns) <= 1 or "Channel" not in fig_df.columns:
+    if fig_df.empty or len(fig_df.columns) <= 1:
         st.info("Not enough scored items to build a heatmap yet. Score at least one item.")
         return
-
-    # matrix and axes
     z = fig_df.drop(columns=["Channel"]).values
-    x = list(fig_df.columns.drop("Channel"))
+    x = list(fig_df.columns[1:])
     y = list(fig_df["Channel"])
-
-    # use your constant OR inline the list (pick one)
     hm = go.Figure(data=go.Heatmap(
-        z=z, x=x, y=y,
-        zmin=0.0, zmax=1.0,
-        colorscale=HEATMAP_COLORSCALE,   # <-- or replace with the 3-stop literal below
+        colorscale=[
+            [0.0, 'rgb(128,0,128)'],   # purple (low)
+            [0.5, 'rgb(255,255,255)'], # white (mid)
+            [1.0, 'rgb(0,0,128)']      # navy (high)
+        ],
+        z=z, x=x, y=y, zmin=0.0, zmax=1.0,
         colorbar=dict(title="Median Score"),
         hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"
     ))
-    # If you prefer the explicit literal instead of the constant:
-    # colorscale=[
-    #     [0.0, 'rgb(128,0,128)'],   # purple (low)
-    #     [0.5, 'rgb(255,255,255)'], # white  (mid)
-    #     [1.0, 'rgb(0,0,128)']      # navy   (high)
-    # ],
-
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
-    st.plotly_chart(hm, use_container_width=True)
-    st.dataframe(fig_df, use_container_width=True, hide_index=True)
+    st.plotly_chart(hm, width='stretch')
+    st.dataframe(fig_df, width='stretch')
 
 # ------------- Correlation Explorer (integrated) -------------
 def _records_to_long_df(records: list[dict]) -> pd.DataFrame:
@@ -520,6 +490,12 @@ else:
 render_correlation_section()
 
 
+# -----------------------------
+# Dashboard (Brand Lift)
+
+st.markdown("<h1>Brand Lift</h1>", unsafe_allow_html=True)
+
+# Heatmap from DB view
 st.subheader("Attribute Importance Heatmap")
 hm_raw = load_heatmap_df()
 if hm_raw.empty:
@@ -531,13 +507,7 @@ else:
     pivot = hm_raw.pivot(index="Channel", columns="Attribute", values="Score").reset_index()
     _heatmap(pivot, title="Attribute Importance Heatmap (Median by Channel)")
 
-# Trends from DB view# -----------------------------
-# Dashboard (Brand Lift)
-
-st.markdown("<h1>Brand Lift</h1>", unsafe_allow_html=True)
-
-# Heatmap from DB view
-
+# Trends from DB view
 st.subheader("Monthly trends (median by month)")
 tr_raw = load_trends_df()
 if tr_raw.empty:

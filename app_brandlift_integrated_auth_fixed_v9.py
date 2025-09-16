@@ -414,25 +414,33 @@ elif page == "Org Settings":
     st.stop()
 
 def _heatmap(fig_df: pd.DataFrame, title: str = "Attribute Importance Heatmap"):
-    if fig_df.empty or len(fig_df.columns) <= 1:
+    if fig_df.empty or len(fig_df.columns) <= 1 or "Channel" not in fig_df.columns:
         st.info("Not enough scored items to build a heatmap yet. Score at least one item.")
         return
+
+    # matrix and axes
     z = fig_df.drop(columns=["Channel"]).values
-    x = list(fig_df.columns[1:])
+    x = list(fig_df.columns.drop("Channel"))
     y = list(fig_df["Channel"])
+
+    # use your constant OR inline the list (pick one)
     hm = go.Figure(data=go.Heatmap(
-        colorscale=HEATMAP_COLORSCALE
-            [0.0, 'rgb(128,0,128)'],   # purple (low)
-            [0.5, 'rgb(255,255,255)'], # white (mid)
-            [1.0, 'rgb(0,0,128)']      # navy (high)
-        ],
-        z=z, x=x, y=y, zmin=0.0, zmax=1.0,
+        z=z, x=x, y=y,
+        zmin=0.0, zmax=1.0,
+        colorscale=HEATMAP_COLORSCALE,   # <-- or replace with the 3-stop literal below
         colorbar=dict(title="Median Score"),
         hovertemplate="Channel: %{y}<br>Attribute: %{x}<br>Median: %{z:.2f}<extra></extra>"
     ))
+    # If you prefer the explicit literal instead of the constant:
+    # colorscale=[
+    #     [0.0, 'rgb(128,0,128)'],   # purple (low)
+    #     [0.5, 'rgb(255,255,255)'], # white  (mid)
+    #     [1.0, 'rgb(0,0,128)']      # navy   (high)
+    # ],
+
     hm.update_layout(title=title, margin=dict(l=40, r=20, t=60, b=40))
-    st.plotly_chart(hm, width='stretch')
-    st.dataframe(fig_df, width='stretch')
+    st.plotly_chart(hm, use_container_width=True)
+    st.dataframe(fig_df, use_container_width=True, hide_index=True)
 
 # ------------- Correlation Explorer (integrated) -------------
 def _records_to_long_df(records: list[dict]) -> pd.DataFrame:

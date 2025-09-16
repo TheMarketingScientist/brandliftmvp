@@ -191,7 +191,11 @@ def login_view():
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            sb_client().auth.reset_password_for_email(email)
+            redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
+            kwargs = {}
+            if redirect:
+                kwargs["options"] = {"redirect_to": redirect}
+            sb_client().auth.reset_password_for_email(email, **kwargs)
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
@@ -463,7 +467,11 @@ def page_admin_users():
             st.error(f"Resend failed: {e}")
     if c4.button("Trigger password reset"):
         try:
-            sb_client().auth.reset_password_for_email(email3)
+            redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
+            kwargs = {}
+            if redirect:
+                kwargs["options"] = {"redirect_to": redirect}
+            sb_client().auth.reset_password_for_email(email3, **kwargs)
             st.success("Reset email sent.")
         except Exception as e:
             st.error(f"Reset failed: {e}")

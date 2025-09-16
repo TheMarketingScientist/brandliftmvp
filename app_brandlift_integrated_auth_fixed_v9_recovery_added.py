@@ -177,28 +177,25 @@ def login_view():
             out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
             st.session_state.sb_session = out.session
             st.session_state.sb_user = out.user
-            try:
-                _post_login_bootstrap()
-                st.rerun()
-            except Exception:
-                st.info("Password updated. Please sign in with your new password.")
-                try:
-                    st.experimental_set_query_params()
-                except Exception:
-                    pass
-                st.stop()
+             _post_login_bootstrap()
+            st.rerun()
         except Exception as e:
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
-        try:
-            redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
-            kwargs = {}
-            if redirect:
-                kwargs["options"] = {"redirect_to": redirect}
-            sb_client().auth.reset_password_for_email(email, **kwargs)
-            st.info("Password reset email sent (if the email exists).")
-        except Exception as e:
-            st.error(f"Could not send reset email: {e}")
+        if not email:
+            st.warning("Enter your email above first.")
+        else:
+            try:
+                redirect = RECOVERY_BRIDGE_URL or APP_BASE_URL
+                kwargs = {}
+                if redirect:
+                    kwargs["options"] = {"redirect_to": redirect}
+                sb_client().auth.reset_password_for_email(email, **kwargs)
+                st.success("If that email exists, we sent a reset link.")
+                if not redirect:
+                    st.info("Tip: set RECOVERY_BRIDGE_URL or APP_BASE_URL so the email link returns to your app.")
+            except Exception as e:
+                st.error(f"Could not send reset email: {e}")
 
 
 

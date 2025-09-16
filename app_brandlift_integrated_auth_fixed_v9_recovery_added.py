@@ -293,6 +293,7 @@ def _post_login_bootstrap():
     ss.org = _fetch_org(org_id)
 
 
+
 def require_auth():
     """
     Unified guard:
@@ -303,12 +304,12 @@ def require_auth():
     """
     init_session()
 
-    # (1) Handle password recovery links early
+    # --- EARLY: handle password recovery ---
     try:
         q = _get_query_params()
     except Exception:
         q = {}
-    tp  = _qp_get(q, "type")
+    tp   = _qp_get(q, "type")
     code_param = _qp_get(q, "code")
     at   = _qp_get(q, "access_token")
     rt   = _qp_get(q, "refresh_token")

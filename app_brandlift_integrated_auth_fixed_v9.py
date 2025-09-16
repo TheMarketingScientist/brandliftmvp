@@ -114,8 +114,67 @@ def _fetch_org(org_id: str):
 
 # -----------------------------
 # Auth views & guards
+# ---- Password reset helpers (Supabase magic-link recovery) ----
+def _get_query_params() -> dict:
+    \"\"\"Return query params in a Streamlit-version-safe way.\"\"\"
+    try:
+        return dict(st.query_params)
+    except Exception:
+        try:
+            return {k: (v[0] if isinstance(v, list) and v else v) for k, v in st.experimental_get_query_params().items()}
+        except Exception:
+            return {}
+
+def _clear_query_params():
+    try:
+        st.query_params.clear()
+    except Exception:
+        try:
+            st.experimental_set_query_params()
+        except Exception:
+            pass
+
+def _password_recovery_view():
+    \"\"\"Handle Supabase password recovery links: exchange code -> set new password.\"\"\"
+    st.title("Reset your password")
+    q = _get_query_params()
+    code = q.get("code") or q.get("access_token") or q.get("token")
+    try:
+        if code:
+            out = sb_client().auth.exchange_code_for_session(code)
+            st.session_state.sb_session = out.session
+            st.session_state.sb_user = out.user
+    except Exception:
+        st.error("This reset link is invalid or expired. Please request a new one from the login screen.")
+        if st.button("Back to sign in"):
+            _clear_query_params()
+            st.rerun()
+        st.stop()
+
+    new = st.text_input("New password", type="password", key="pw_new")
+    confirm = st.text_input("Confirm new password", type="password", key="pw_new2")
+    if st.button("Set new password"):
+        if not new or len(new) < 8:
+            st.error("Please use at least 8 characters.")
+        elif new != confirm:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                sb_client().auth.update_user({"password": new})
+                st.success("Password updated! You can now sign in with your new password.")
+                _clear_query_params()
+                _post_login_bootstrap()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not update password: {e}")
+    st.stop()
+
 # -----------------------------
 def login_view():
+    # If user arrived via password-recovery magic link, show reset form
+    q = _get_query_params()
+    if q.get('type') == 'recovery' or q.get('code') or q.get('access_token'):
+        _password_recovery_view()
     st.title("Sign in")
     email = st.text_input("Email", key="sb_email")
     pwd = st.text_input("Password", type="password", key="sb_pwd")
@@ -131,7 +190,7 @@ def login_view():
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            sb_client().auth.reset_password_for_email(email)
+            sb_client().auth.reset_password_for_email(email, options={'redirect_to': (APP_BASE_URL.rstrip('/') if APP_BASE_URL else '')})
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")

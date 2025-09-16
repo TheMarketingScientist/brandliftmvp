@@ -11,7 +11,6 @@ from pathlib import Path
 import json
 import time
 import streamlit as st
-import streamlit.components.v1 as components
 import tomllib  # Python 3.11+
 from supabase import create_client, Client
 
@@ -46,7 +45,6 @@ SUPABASE_URL = cfg("SUPABASE_URL")
 SUPABASE_ANON_KEY = cfg("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = cfg("SUPABASE_SERVICE_ROLE_KEY", None)
 APP_BASE_URL = cfg("APP_BASE_URL", "")
-RECOVERY_BRIDGE_URL = cfg("RECOVERY_BRIDGE_URL", "")  # optional bridge URL for password resets
 ANTHROPIC_API_KEY = cfg("ANTHROPIC_API_KEY")
 
 # ---------- Brand Theme ----------
@@ -167,143 +165,8 @@ def _password_demo_gate():
     return False
 # -----------------------------
 # Auth views & guards
-
-def _password_recovery_view():
-    """Supabase recovery handler: adopt tokens, set session, update password."""
-    st.title("Reset your password")
-    q = _get_query_params()
-    code = q.get("code") or q.get("auth_code")
-    acc = q.get("access_token")
-    ref = q.get("refresh_token")
-    try:
-        if code and hasattr(sb_client().auth, "exchange_code_for_session"):
-            out = sb_client().auth.exchange_code_for_session(code)  # OAuth/magic link style
-            st.session_state.sb_session = out.session
-            st.session_state.sb_user = out.user
-        elif acc and ref and hasattr(sb_client().auth, "set_session"):
-            out = sb_client().auth.set_session(acc, ref)            # recovery sends access/refresh in hash
-            st.session_state.sb_session = getattr(out, "session", None) or st.session_state.get("sb_session")
-            st.session_state.sb_user = getattr(out, "user", None) or st.session_state.get("sb_user")
-        else:
-            st.info("Missing session tokens in URL. Click 'Forgot password?' again to get a fresh link.")
-            if st.button("Back to sign in"):
-                try:
-                    st.experimental_set_query_params()
-                except Exception:
-                    pass
-                st.rerun()
-            st.stop()
-    except Exception:
-        st.error("This reset link is invalid or expired. Please request a new one from the login screen.")
-        if st.button("Back to sign in"):
-            try:
-                st.experimental_set_query_params()
-            except Exception:
-                pass
-            st.rerun()
-        st.stop()
-
-    # Ask for new password
-    new = st.text_input("New password", type="password", key="pw_new")
-    confirm = st.text_input("Confirm new password", type="password", key="pw_new2")
-    if st.button("Set new password"):
-        if not new or len(new) < 8:
-            st.error("Please use at least 8 characters.")
-        elif new != confirm:
-            st.error("Passwords do not match.")
-        else:
-            try:
-                sb_client().auth.update_user({"password": new})
-                st.success("Password updated! You can now sign in with your new password.")
-                try:
-                    st.experimental_set_query_params()  # clear
-                except Exception:
-                    pass
-                _post_login_bootstrap()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not update password: {e}")
-    st.stop()
-
-
-
-def _get_query_params() -> dict:
-    """Read query params, Streamlit-compatible across versions."""
-    try:
-        return dict(st.query_params)
-    except Exception:
-        try:
-            return {k: (v[0] if isinstance(v, list) and v else v) for k, v in st.experimental_get_query_params().items()}
-        except Exception:
-            return {}
-
-
-
-def _adopt_hash_params():
-    """If the URL has a #fragment with access_token/type, move it to query and reload."""
-    components.html("""
-    <script>
-    (function(){
-      try {
-        var h = window.location.hash || '';
-        if (!h) return;
-        if (h.indexOf('type=recovery') === -1 && h.indexOf('access_token=') === -1) return;
-        var params = new URLSearchParams(h.substring(1)); // strip '#'
-        var url = new URL(window.location.href);
-        var changed = false;
-        params.forEach((v,k)=>{ url.searchParams.set(k,v); changed = true; });
-        if (changed) {
-          url.hash = '';
-          // Use replace to avoid polluting history
-          window.location.replace(url.toString());
-        }
-      } catch(e){}
-    })();
-    </script>
-    """, height=0)
-
-
-
-
-def _recovery_paste_box():
-    """Paste the full recovery link (handles #access_token or ?code) to proceed if redirect fails."""
-    import urllib.parse as _up
-    with st.expander("Having trouble with the email link? Paste the full link here"):
-        raw = st.text_input("Paste the entire link from your email")
-        if st.button("Continue with this link"):
-            if not raw:
-                st.warning("Please paste the link first."); st.stop()
-            try:
-                u = _up.urlsplit(raw.strip())
-                frag = u.fragment
-                q = dict(_up.parse_qsl(u.query or ""))
-                f = dict(_up.parse_qsl(frag or ""))
-                code = f.get("code") or q.get("code") or f.get("auth_code") or q.get("auth_code")
-                acc = f.get("access_token") or q.get("access_token")
-                ref = f.get("refresh_token") or q.get("refresh_token")
-                if code and hasattr(sb_client().auth, "exchange_code_for_session"):
-                    out = sb_client().auth.exchange_code_for_session(code)
-                    st.session_state.sb_session = out.session
-                    st.session_state.sb_user = out.user
-                    _password_recovery_view()
-                elif acc and ref and hasattr(sb_client().auth, "set_session"):
-                    out = sb_client().auth.set_session(acc, ref)
-                    st.session_state.sb_session = getattr(out, "session", None) or st.session_state.get("sb_session")
-                    st.session_state.sb_user = getattr(out, "user", None) or st.session_state.get("sb_user")
-                    _password_recovery_view()
-                else:
-                    st.error("Could not find recovery tokens in that link. Please request a new email.")
-                st.stop()
-            except Exception as e:
-                st.error(f"Invalid link: {e}"); st.stop()
-
 # -----------------------------
 def login_view():
-    # Adopt Supabase tokens from hash -> query, then route to reset page if detected
-    _adopt_hash_params()
-    q = _get_query_params()
-    if q.get('type') == 'recovery' or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
-        _password_recovery_view()
     st.title("Sign in")
     email = st.text_input("Email", key="sb_email")
     pwd = st.text_input("Password", type="password", key="sb_pwd")
@@ -313,13 +176,21 @@ def login_view():
             out = sb_client().auth.sign_in_with_password({"email": email, "password": pwd})
             st.session_state.sb_session = out.session
             st.session_state.sb_user = out.user
-            _post_login_bootstrap()
-            st.rerun()
+            try:
+                _post_login_bootstrap()
+                st.rerun()
+            except Exception:
+                st.info("Password updated. Please sign in with your new password.")
+                try:
+                    st.experimental_set_query_params()
+                except Exception:
+                    pass
+                st.stop()
         except Exception as e:
             st.error(f"Login failed: {e}")
     if c2.button("Forgot password?"):
         try:
-            sb_client().auth.reset_password_for_email(email, options={'redirect_to': ((RECOVERY_BRIDGE_URL or APP_BASE_URL or '').rstrip('/'))})
+            sb_client().auth.reset_password_for_email(email)
             st.info("Password reset email sent (if the email exists).")
         except Exception as e:
             st.error(f"Could not send reset email: {e}")
@@ -348,6 +219,15 @@ def _post_login_bootstrap():
     ss.org = _fetch_org(org_id)
 
 def require_auth():
+
+init_session()
+# If we're handling a password recovery link, route there and stop.
+try:
+    q = _get_query_params()
+except Exception:
+    q = {}
+if (q.get('type') == 'recovery') or q.get('code') or (q.get('access_token') and q.get('refresh_token')):
+    _password_recovery_view()
     init_session()
     maybe_refresh_session()
     if DEMO_MODE:

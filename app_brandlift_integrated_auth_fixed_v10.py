@@ -487,10 +487,12 @@ def _records_to_long_df(records: list[dict]) -> pd.DataFrame:
         df = df[(df["score"]>=0) & (df["score"]<=1)]
     return df
 
-def _plot_channel_trends(df_channel: pd.DataFrame):
+def _plot_channel_trends(df_in: pd.DataFrame):
+    if df_in is None or df_in.empty:
+        st.info("No trend data yet."); return
     fig = go.Figure()
-    for attr in sorted(df_channel["Attribute"].unique()):
-        sdf = df_channel[df_channel["Attribute"] == attr].sort_values("Month")
+    for attr in sorted(df_in["Attribute"].unique()):
+        sdf = df_in[df_in["Attribute"] == attr].sort_values("Month")
         fig.add_trace(go.Scatter(
             x=sdf["Month"],
             y=sdf["Score"],
@@ -506,7 +508,7 @@ def _plot_channel_trends(df_channel: pd.DataFrame):
         legend_title="Attribute"
     )
     st.plotly_chart(fig, width='stretch')
-    wide = df_channel.pivot(index="Month", columns="Attribute", values="Score").reset_index()
+    wide = df_in.pivot(index="Month", columns="Attribute", values="Score").reset_index()
     st.dataframe(wide, width='stretch')
 
 _seed_demo_trends()
